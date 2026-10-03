@@ -86,7 +86,9 @@ pra ligar o regulador de 1,8V.
 |---|
 | <img src="assets/interposer/topo-mn864739.png" width="220"><br>U1 = TI TLV71318PDBVR (ponto rosa = pino 1) |
 
-**Ficha técnica do regulador** ([TLV71318PDBVR](https://www.ti.com/lit/gpn/TLV713), encapsulamento SOT-23-5):
+**Ficha técnica do regulador** — TLV71318PDBVR, encapsulamento SOT-23-5
+([datasheet oficial da TI](https://www.ti.com/lit/gpn/TLV713) ·
+[página do componente na LCSC, part C2869099](https://www.lcsc.com/product-detail/C2869099.html)):
 
 | Parâmetro | Valor |
 |---|---|
