@@ -5,6 +5,36 @@
 Desenvolvido por **DatZero Foundation** — [datzerogames.com.br](https://datzerogames.com.br/)
 Técnico criador: **Jefferson Honorio**
 
+![Tela principal do PS5 HDMI Tool](docs/assets/screenshot.png)
+
+## 🎯 Para que serve
+
+**PS5 HDMI Tool** é uma ferramenta de software que **aplica um patch no arquivo
+`.bin` da memória NOR da placa de um PS5 Slim**, tornando possível instalar um
+chip HDMI da **Nuvoton (MN864739)** em placas que originalmente exigem um chip
+**Realtek (RTD2175P)** — e vice-versa. Ou seja: conversão/troca de CI HDMI
+(chip HDMI) do PS5 Slim por reaproveitamento de componente, uma alternativa
+quando o chip Realtek original está em falta ou inviável de encontrar no
+mercado de reposição.
+
+Esta ferramenta é a parte **software** do processo. A parte física (a troca
+do chip em si, via retrabalho/microssoldagem) é feita com o
+**[Interposer DatZero](docs/GUIA_INSTALACAO_INTERPOSER.md)** — veja o guia
+completo de instalação física, com lista de ferramentas e fotos passo a
+passo. O programa e o Interposer são complementares: o Interposer resolve a
+parte elétrica/física do CI HDMI (incluindo regulador de tensão dedicado, ver
+seção no guia), e o PS5 HDMI Tool resolve a parte da NOR (ler, gravar e
+converter o firmware da placa pro novo chip).
+
+**Busca relacionada:** conserto PS5 HDMI, reparo placa PS5 sem imagem/sem
+vídeo, troca chip HDMI PS5, Realtek RTD2175P sem estoque, substituir RTD2175P
+por MN864739, Nuvoton MN864739 no lugar do Realtek, programador CH341A PS5,
+leitura e gravação de NOR PS5, patch de NOR PS5, interposer HDMI PS5 Slim.
+
+**Testado com hardware real:** leitor CH341A testado em bancada real — leitura
+e gravação de NOR funcionando corretamente (confirmado pelo criador do
+projeto).
+
 ## ⬇️ Baixar
 
 **[Baixar o instalador (.exe) — última versão](https://github.com/vendashson-rgb/ps5-hdmi-tool/releases/latest)**
@@ -241,24 +271,18 @@ projeto**. Touchpad e bateria são os campos mais sensíveis a variação de
 firmware. Teste com seu controle e me avise exatamente o que funcionou ou
 veio errado, que eu ajusto os offsets.
 
-## ⚠️ Ainda não testado com hardware real
+## ✅ Testado com hardware real
 
-A camada de comunicação com o CH341A (`ch341_spi.py`) foi escrita com base na
-interface pública conhecida da `CH341DLL.dll` (a mesma usada por outras
-ferramentas de gravação baseadas nesse chip), mas **ainda não foi validada
-com o leitor físico**. Ao testar pela primeira vez:
-
-- Se `CH341OpenDevice` falhar, me mande a mensagem de erro exata.
-- Se o JEDEC ID vier diferente do esperado, me avise antes de prosseguir —
-  pode ser necessário ajustar o modo SPI (`CH341SetStream`) ou o tamanho do
-  bloco de leitura.
+A camada de comunicação com o CH341A (`ch341_spi.py`) foi validada em bancada
+com um leitor CH341A real: **leitura e gravação de NOR confirmadas
+funcionando corretamente**.
 
 ## Estrutura do projeto
 
 Código do programa (ficam na raiz):
 - `nor_parser.py` — interpretação do conteúdo da NOR (chip, MAC, etc.). Testado contra 6 dumps reais.
 - `nor_patcher.py` — gera o patch de conversão Realtek ⇄ Nuvoton/Panasonic.
-- `ch341_spi.py` — comunicação com o leitor CH341A (testado com hardware real).
+- `ch341_spi.py` — comunicação com o leitor CH341A (**testado e confirmado com hardware real** — leitura e gravação de NOR funcionando).
 - `uart_reader.py` — captura da porta serial/UART (aba "Leitor UART"). **Ainda não testado com um adaptador real.**
 - `dualsense.py` — leitura/teste de controle DualSense via HID bruto (aba "Teste de Controle"). **Ainda não testado com um controle real.**
 - `gif_anim.py` — player de animações GIF usado na interface.
