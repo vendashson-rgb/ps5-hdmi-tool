@@ -1,0 +1,18 @@
+# Backups de NOR reais de clientes -- NUNCA publicar (dados sensiveis: MAC, serial).
+database/
+
+# Artefatos de build (gerados pelo PyInstaller/Inno Setup, nao sao fonte).
+build/
+dist/
+dist_package/
+installer_output/
+*.zip
+
+# Python
+__pycache__/
+*.pyc
+
+# Editor/OS
+.vscode/
+Thumbs.db
+desktop.ini
