@@ -1,6 +1,7 @@
 # PS5 HDMI Tool
 
 Desenvolvido por **DatZero Foundation** — [datzerogames.com.br](https://datzerogames.com.br/)
+Técnico criador: **Jefferson Honorio**
 
 Programa para ler/gravar a NOR de placas PS5 Slim via leitor CH341A, conferir
 a leitura, salvar backup automático, mostrar informações da placa (chip HDMI

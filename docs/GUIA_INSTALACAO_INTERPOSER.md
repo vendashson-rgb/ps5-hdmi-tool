@@ -1,6 +1,7 @@
 # Guia de instalação do Interposer DatZero (Realtek RTD2175P → Nuvoton/Panasonic MN864739)
 
 **DatZero Foundation** — [datzerogames.com.br](https://datzerogames.com.br/)
+Técnico criador: **Jefferson Honorio**
 
 ---
 
