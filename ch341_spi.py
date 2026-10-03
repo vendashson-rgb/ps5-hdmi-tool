@@ -29,6 +29,8 @@ import sys
 import time
 from ctypes import wintypes
 
+from i18n import t
+
 # Quando rodando como .exe gerado pelo PyInstaller (--onefile), os arquivos
 # empacotados (como drives/CH341DLL.dll) ficam numa pasta temporaria
 # (sys._MEIPASS), nao ao lado deste arquivo .py.
@@ -79,17 +81,8 @@ class CH341SPI:
             except OSError as e:
                 last_err = e
                 if getattr(e, "winerror", None) == 193:
-                    raise CH341Error(
-                        "CH341DLL.dll e de 32 bits, mas este Python e de 64 bits "
-                        "(Windows nao deixa misturar). Rode este programa com um "
-                        "Python de 32 bits -- veja o README.md, secao "
-                        "'Problema de 32 bits x 64 bits'."
-                    ) from e
-        raise CH341Error(
-            "Nao foi possivel carregar CH341DLL.dll. Verifique se o driver do "
-            "CH341A esta instalado e se o arquivo CH341DLL.dll esta na mesma "
-            f"pasta do programa. Detalhe: {last_err}"
-        )
+                    raise CH341Error(t("backend.ch341.wrong_bitness")) from e
+        raise CH341Error(t("backend.ch341.dll_not_found", detail=last_err))
 
     def _declare_signatures(self):
         dll = self._dll
@@ -111,15 +104,12 @@ class CH341SPI:
     def open(self):
         handle = self._dll.CH341OpenDevice(self._index)
         if handle == -1 or handle is None:
-            raise CH341Error(
-                "Leitor CH341A nao encontrado. Confira se esta conectado na "
-                "USB e se o driver aparece no Gerenciador de Dispositivos."
-            )
+            raise CH341Error(t("backend.ch341.reader_not_found"))
         # iMode: 0x81 costuma ser "SPI modo 0, MSB first, clock alto" nas
         # ferramentas que usam essa DLL -- PRECISA confirmar com hardware real.
         ok = self._dll.CH341SetStream(self._index, 0x81)
         if not ok:
-            raise CH341Error("Falha ao configurar o modo SPI no leitor CH341A.")
+            raise CH341Error(t("backend.ch341.spi_mode_fail"))
         self._open = True
 
     def close(self):
@@ -139,7 +129,7 @@ class CH341SPI:
         buf = ctypes.create_string_buffer(out_bytes, len(out_bytes))
         ok = self._dll.CH341StreamSPI4(self._index, chip_select, len(out_bytes), buf)
         if not ok:
-            raise CH341Error("Falha na transferencia SPI com o leitor CH341A.")
+            raise CH341Error(t("backend.ch341.transfer_fail"))
         return buf.raw[:len(out_bytes)]
 
     def read_jedec_id(self) -> bytes:
@@ -156,7 +146,7 @@ class CH341SPI:
             if (self.read_status() & STATUS_BUSY_BIT) == 0:
                 return
             time.sleep(0.01)
-        raise CH341Error("Timeout esperando a NOR ficar pronta (status BUSY nao caiu).")
+        raise CH341Error(t("backend.ch341.timeout_busy"))
 
     def read_all(self, size: int, progress_cb=None) -> bytes:
         out = bytearray()

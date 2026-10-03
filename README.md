@@ -1,5 +1,7 @@
 # PS5 HDMI Tool
 
+🌐 **[Read in English](README.en.md)**
+
 Desenvolvido por **DatZero Foundation** — [datzerogames.com.br](https://datzerogames.com.br/)
 Técnico criador: **Jefferson Honorio**
 
@@ -20,6 +22,13 @@ ver `NOTES.md`. Só está resolvido para as combinações já vistas em amostras
 reais; para uma combinação nova o programa avisa e mantém o valor antigo —
 nesse caso, grave **somente em placa de bancada/teste**, nunca em placa de
 cliente, até surgir uma amostra real que confirme o valor certo.
+
+## Idioma do programa
+
+O programa tem três bandeirinhas no canto superior direito (🇧🇷/🇺🇸/🇪🇸) —
+clique em uma pra trocar o idioma da interface na hora, sem reiniciar:
+**português, inglês ou espanhol**. Toda a interface (botões, abas, mensagens
+de confirmação/erro e o log de atividade) é traduzida — ver `i18n.py`.
 
 ## ⚠️ Problema de 32 bits x 64 bits (leia antes de rodar)
 
@@ -244,6 +253,7 @@ Código do programa (ficam na raiz):
 - `uart_reader.py` — captura da porta serial/UART (aba "Leitor UART"). **Ainda não testado com um adaptador real.**
 - `dualsense.py` — leitura/teste de controle DualSense via HID bruto (aba "Teste de Controle"). **Ainda não testado com um controle real.**
 - `gif_anim.py` — player de animações GIF usado na interface.
+- `i18n.py` — traduções da interface (português/inglês/espanhol) e o seletor de idioma ativo.
 - `gui.py` — interface gráfica (Tkinter).
 - `main.py` — ponto de entrada (`python main.py`).
 - `requirements.txt` — dependências Python (Pillow, pyserial, hidapi).
@@ -255,7 +265,8 @@ Código do programa (ficam na raiz):
 Pastas de apoio (tudo que o programa precisa para rodar na máquina do usuário):
 - `images/` — logo, ícone e todas as animações (`.gif`) mostradas na interface.
   `images/controller/` tem o diagrama do controle (fundo + um recorte
-  transparente por botão) usado na aba "Teste de Controle".
+  transparente por botão) usado na aba "Teste de Controle". `images/flags/`
+  tem as bandeirinhas (pt/en/es) do seletor de idioma.
 - `drives/` — driver do leitor CH341A (`CH341WDM.*`, `CH341W64.SYS`) e a
   `CH341DLL.dll` usada pelo programa para falar com o leitor. O instalador
   registra esse driver automaticamente no Windows (seção "Gerar o
@@ -276,6 +287,7 @@ programa, só para quem está desenvolvendo/depurando):
 - `dev_tools/find_wifi_rev.py` / `dev_tools/search_version.py` — scripts de pesquisa de offsets.
 - `dev_tools/diag_find_chunk.py` — descobre o tamanho de bloco de transferência SPI que funciona com o leitor.
 - `dev_tools/make_icon.py` — gera `images/icon.ico` a partir de `images/logo.png`.
+- `dev_tools/build_flags.py` — gera `images/flags/*.png` (bandeiras do seletor de idioma).
 - `dev_tools/build_controller_diagram.py` — gera `images/controller/*.png` (diagrama do controle) a
   partir do SVG real do DualSense usado pelo dualshock-tools.github.io
   (`dev_tools/assets_src/dualsense-controller.svg`, MIT). Só precisa rodar de novo se trocar o SVG de

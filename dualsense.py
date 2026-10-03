@@ -32,6 +32,8 @@ from dataclasses import dataclass, field
 
 import hid
 
+from i18n import t
+
 SONY_VENDOR_ID = 0x054C
 DUALSENSE_PRODUCT_ID = 0x0CE6
 DUALSENSE_EDGE_PRODUCT_ID = 0x0DF2
@@ -102,7 +104,7 @@ class DualSenseController:
             dev = hid.device()
             dev.open_path(self._path)
         except OSError as e:
-            raise DualSenseError(f"Nao foi possivel abrir o controle: {e}") from e
+            raise DualSenseError(t("backend.ds.open_fail", detail=e)) from e
         self._dev = dev
 
     def start(self):
@@ -202,7 +204,7 @@ class DualSenseController:
         try:
             self._dev.write(bytes(buf))
         except OSError as e:
-            raise DualSenseError(f"Falha ao enviar comando para o controle: {e}") from e
+            raise DualSenseError(t("backend.ds.send_fail", detail=e)) from e
 
     # -- Calibracao do analogico (feature reports) ---------------------------
     # Sequencia de comandos (report IDs 0x80/0x81 para NVS lock/unlock, 0x82
@@ -228,7 +230,7 @@ class DualSenseController:
 
     def _require_dev(self):
         if self._dev is None:
-            raise DualSenseError("Controle nao conectado.")
+            raise DualSenseError(t("backend.ds.not_connected"))
 
     def nvs_unlock(self):
         self._require_dev()
@@ -236,7 +238,7 @@ class DualSenseController:
             self._dev.send_feature_report(bytes([0x80, 3, 2, 101, 50, 64, 12]))
             self._dev.get_feature_report(0x81, 64)
         except OSError as e:
-            raise DualSenseError(f"Falha ao destravar a memoria do controle: {e}") from e
+            raise DualSenseError(t("backend.ds.unlock_fail", detail=e)) from e
 
     def nvs_lock(self):
         self._require_dev()
@@ -244,7 +246,7 @@ class DualSenseController:
             self._dev.send_feature_report(bytes([0x80, 3, 1]))
             self._dev.get_feature_report(0x81, 64)
         except OSError as e:
-            raise DualSenseError(f"Falha ao travar/salvar a memoria do controle: {e}") from e
+            raise DualSenseError(t("backend.ds.lock_fail", detail=e)) from e
 
     def flash_changes(self):
         """Confirma (grava permanentemente) as mudancas de calibracao feitas
@@ -261,22 +263,21 @@ class DualSenseController:
             self._dev.send_feature_report(bytes([0x82, 1, 1, 1]))
             resp = self._dev.get_feature_report(0x83, 64)
             if not self._feature_contains(resp, 0x83010101):
-                raise DualSenseError(
-                    "O controle nao respondeu como esperado ao iniciar a calibracao de centro.")
+                raise DualSenseError(t("backend.ds.center_start_unexpected"))
 
             for _ in range(5):
                 time.sleep(0.1)
                 self._dev.send_feature_report(bytes([0x82, 3, 1, 1]))
                 resp = self._dev.get_feature_report(0x83, 64)
                 if not self._feature_contains(resp, 0x83010101):
-                    raise DualSenseError("Falha durante a amostragem da calibracao de centro.")
+                    raise DualSenseError(t("backend.ds.center_sample_fail"))
 
             self._dev.send_feature_report(bytes([0x82, 2, 1, 1]))
             resp = self._dev.get_feature_report(0x83, 64)
             if not self._feature_contains(resp, 0x83010102):
-                raise DualSenseError("Falha ao finalizar/gravar a calibracao de centro.")
+                raise DualSenseError(t("backend.ds.center_finish_fail"))
         except OSError as e:
-            raise DualSenseError(f"Erro de comunicacao durante a calibracao: {e}") from e
+            raise DualSenseError(t("backend.ds.comm_error_calib", detail=e)) from e
 
     def calibrate_range_begin(self):
         """Inicia a calibracao de alcance -- o usuario deve girar os dois
@@ -286,10 +287,9 @@ class DualSenseController:
             self._dev.send_feature_report(bytes([0x82, 1, 1, 2]))
             resp = self._dev.get_feature_report(0x83, 64)
             if not self._feature_contains(resp, 0x83010201):
-                raise DualSenseError(
-                    "O controle nao respondeu como esperado ao iniciar a calibracao de alcance.")
+                raise DualSenseError(t("backend.ds.range_start_unexpected"))
         except OSError as e:
-            raise DualSenseError(f"Erro de comunicacao ao iniciar calibracao de alcance: {e}") from e
+            raise DualSenseError(t("backend.ds.comm_error_range_start", detail=e)) from e
 
     def calibrate_range_end(self):
         self._require_dev()
@@ -297,9 +297,9 @@ class DualSenseController:
             self._dev.send_feature_report(bytes([0x82, 2, 1, 2]))
             resp = self._dev.get_feature_report(0x83, 64)
             if not self._feature_contains(resp, 0x83010202):
-                raise DualSenseError("Falha ao finalizar a calibracao de alcance.")
+                raise DualSenseError(t("backend.ds.range_finish_fail"))
         except OSError as e:
-            raise DualSenseError(f"Erro de comunicacao ao finalizar calibracao de alcance: {e}") from e
+            raise DualSenseError(t("backend.ds.comm_error_range_finish", detail=e)) from e
 
     def close(self):
         self._stop_flag.set()

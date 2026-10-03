@@ -38,6 +38,7 @@ from PIL import Image, ImageTk
 
 from ch341_spi import CH341Error, CH341SPI
 from gif_anim import GifAnimation
+from i18n import LANGUAGES, get_language, set_language, t
 from nor_parser import CHIP_SLUG, EXPECTED_SIZE, NorInfo, compare_dumps, parse_nor
 from nor_patcher import PatchResult, TARGET_BYTE, TARGET_LABEL, TARGET_NUVOTON, TARGET_REALTEK, apply_patch
 from uart_reader import COMMON_BAUDRATES, DEFAULT_BAUDRATE, UartError, UartReader, list_ports
@@ -98,6 +99,7 @@ PROGRESS_COLOR = "#4edea3"  # mesma cor verde-menta da barra de progresso
 IMAGES_DIR = BUNDLE_DIR / "images"
 ICON_ICO = IMAGES_DIR / "icon.ico"
 LOGO_PNG = IMAGES_DIR / "logo.png"
+FLAGS_DIR = IMAGES_DIR / "flags"
 IDLE_GIF = IMAGES_DIR / "idle.gif"
 IDLE_SIZE = (260, 260)
 DETECTING_GIF = IMAGES_DIR / "detecting.gif"
@@ -165,10 +167,60 @@ class App(tk.Tk):
         self._controller_poll_job: str | None = None
         self._controller_has_pending_changes = False
 
+        self._flag_photos: dict[str, tk.PhotoImage] = {}
+
         self._set_icon()
         self._apply_dark_theme()
         self._build_widgets()
         self.protocol("WM_DELETE_WINDOW", self.on_close)
+
+    # -- Idioma (bandeiras no canto superior direito) ------------------------
+    def _build_language_switcher(self, parent):
+        box = ttk.Frame(parent)
+        box.pack(side="right")
+        self._lang_buttons: dict[str, tk.Label] = {}
+        for lang in LANGUAGES:
+            img = tk.PhotoImage(file=str(FLAGS_DIR / f"{lang}.png"))
+            self._flag_photos[lang] = img
+            lbl = tk.Label(box, image=img, bg=BG, cursor="hand2",
+                            relief="flat", bd=0, highlightthickness=2,
+                            highlightbackground=BG, highlightcolor=BG)
+            lbl.pack(side="left", padx=3)
+            lbl.bind("<Button-1>", lambda _evt, lg=lang: self._set_language(lg))
+            self._lang_buttons[lang] = lbl
+        self._update_language_buttons_highlight()
+
+    def _update_language_buttons_highlight(self):
+        active = get_language()
+        for lang, lbl in self._lang_buttons.items():
+            color = PROGRESS_COLOR if lang == active else BG
+            lbl.configure(highlightbackground=color, highlightcolor=color)
+
+    def _set_language(self, lang: str):
+        if lang == get_language():
+            return
+        set_language(lang)
+        self._update_language_buttons_highlight()
+        self.retranslate_all()
+
+    def retranslate_all(self):
+        """Reaplica o texto traduzido em todos os widgets estaticos (botoes,
+        rotulos, titulos de aba, etc.) depois de trocar o idioma. Mensagens
+        de log/dialogo nao precisam disso -- elas ja chamam t() na hora que
+        sao exibidas, entao saem no idioma certo automaticamente dali em
+        diante."""
+        self.title(t("app.title"))
+        self.lbl_app_title.configure(text=t("app.title"))
+
+        self.notebook.tab(self.hw_tab, text=t("tab.hardware"))
+        self.notebook.tab(self.file_tab, text=t("tab.file"))
+        self.notebook.tab(self.uart_tab, text=t("tab.uart"))
+        self.notebook.tab(self.controller_tab, text=t("tab.controller"))
+
+        self._retranslate_hardware_tab()
+        self._retranslate_file_tab()
+        self._retranslate_uart_tab()
+        self._retranslate_controller_tab()
 
     def on_close(self):
         if self.uart_connected:
@@ -232,7 +284,10 @@ class App(tk.Tk):
                 ttk.Label(header, image=self._logo_img).pack(side="left", padx=(0, 10))
         except tk.TclError:
             pass
-        ttk.Label(header, text="PS5 HDMI Tool", font=("Segoe UI", 14, "bold")).pack(side="left")
+        self.lbl_app_title = ttk.Label(header, text=t("app.title"), font=("Segoe UI", 14, "bold"))
+        self.lbl_app_title.pack(side="left")
+
+        self._build_language_switcher(header)
 
         style = ttk.Style(self)
         style.configure("TNotebook", background=BG, bordercolor=BORDER)
@@ -241,17 +296,17 @@ class App(tk.Tk):
                   background=[("selected", BG_ACTIVE)],
                   foreground=[("selected", FG)])
 
-        notebook = ttk.Notebook(self)
+        self.notebook = notebook = ttk.Notebook(self)
         notebook.pack(fill="both", expand=True, padx=10, pady=10)
 
-        hw_tab = ttk.Frame(notebook)
-        file_tab = ttk.Frame(notebook)
-        uart_tab = ttk.Frame(notebook)
-        controller_tab = ttk.Frame(notebook)
-        notebook.add(hw_tab, text="Leitor CH341A (hardware)")
-        notebook.add(file_tab, text="Analisar arquivo (.bin)")
-        notebook.add(uart_tab, text="Leitor UART")
-        notebook.add(controller_tab, text="Teste de Controle")
+        self.hw_tab = hw_tab = ttk.Frame(notebook)
+        self.file_tab = file_tab = ttk.Frame(notebook)
+        self.uart_tab = uart_tab = ttk.Frame(notebook)
+        self.controller_tab = controller_tab = ttk.Frame(notebook)
+        notebook.add(hw_tab, text=t("tab.hardware"))
+        notebook.add(file_tab, text=t("tab.file"))
+        notebook.add(uart_tab, text=t("tab.uart"))
+        notebook.add(controller_tab, text=t("tab.controller"))
 
         self._build_hardware_tab(hw_tab)
         self._build_file_tab(file_tab)
@@ -262,20 +317,20 @@ class App(tk.Tk):
         top = ttk.Frame(parent, padding=10)
         top.pack(fill="x")
 
-        self.btn_detect = ttk.Button(top, text="1. Detectar leitor CH341A", command=self.on_detect)
+        self.btn_detect = ttk.Button(top, text=t("hw.btn_detect"), command=self.on_detect)
         self.btn_detect.pack(side="left", padx=5)
 
-        self.btn_read = ttk.Button(top, text="2. Ler NOR (2x + comparar + backup)",
+        self.btn_read = ttk.Button(top, text=t("hw.btn_read"),
                                     command=self.on_read, state="disabled")
         self.btn_read.pack(side="left", padx=5)
 
         status_row = ttk.Frame(parent, padding=(10, 0))
         status_row.pack(fill="x")
-        self.lbl_status = ttk.Label(status_row, text="Status: aguardando")
+        self.lbl_status = ttk.Label(status_row, text=t("hw.status_prefix", msg=t("status.waiting")))
         self.lbl_status.pack(side="left")
 
         self.lbl_backup_badge = tk.Label(
-            status_row, text="  Backup: nenhum ainda  ",
+            status_row, text=f"  {t('hw.backup_badge_none')}  ",
             bg="#999999", fg="white", font=("Segoe UI", 9, "bold")
         )
         self.lbl_backup_badge.pack(side="right")
@@ -283,33 +338,34 @@ class App(tk.Tk):
         self.progress = ttk.Progressbar(parent, mode="determinate")
         self.progress.pack(fill="x", padx=10, pady=5)
 
-        patch_frame = ttk.LabelFrame(parent, text="3. Aplicar patch (chip HDMI)", padding=10)
-        patch_frame.pack(fill="x", padx=10, pady=(5, 0))
+        self.lblframe_patch = ttk.LabelFrame(parent, text=t("hw.patch_frame_title"), padding=10)
+        self.lblframe_patch.pack(fill="x", padx=10, pady=(5, 0))
 
-        ttk.Label(patch_frame, text="Gravar NOR configurada para:").pack(side="left")
+        self.lbl_target = ttk.Label(self.lblframe_patch, text=t("hw.target_label"))
+        self.lbl_target.pack(side="left")
         self.target_var = tk.StringVar(value=TARGET_NUVOTON)
         self.combo_target = ttk.Combobox(
-            patch_frame, textvariable=self.target_var, state="readonly", width=28,
+            self.lblframe_patch, textvariable=self.target_var, state="readonly", width=28,
             values=[TARGET_REALTEK, TARGET_NUVOTON]
         )
         self.combo_target.set(TARGET_NUVOTON)
         self.combo_target.pack(side="left", padx=8)
 
-        self.btn_preview = ttk.Button(patch_frame, text="Pre-visualizar alteracoes",
+        self.btn_preview = ttk.Button(self.lblframe_patch, text=t("common.btn_preview"),
                                        command=self.on_preview, state="disabled")
         self.btn_preview.pack(side="left", padx=5)
 
         write_frame = ttk.Frame(parent, padding=(10, 5))
         write_frame.pack(fill="x")
         self.btn_write = tk.Button(
-            write_frame, text="4. GRAVAR NA NOR (irreversivel)",
+            write_frame, text=t("hw.btn_write"),
             command=self.on_write, state="disabled",
             bg="#b30000", fg="white", font=("Segoe UI", 10, "bold")
         )
         self.btn_write.pack(side="left", padx=5, fill="x", expand=True)
 
         self.btn_restore = tk.Button(
-            write_frame, text="Restaurar backup de arquivo...",
+            write_frame, text=t("hw.btn_restore"),
             command=self.on_restore_backup, state="disabled",
             bg=BG_ALT, fg=FG, font=("Segoe UI", 10, "bold"),
             activebackground=BG_ACTIVE, activeforeground=FG,
@@ -317,26 +373,26 @@ class App(tk.Tk):
         )
         self.btn_restore.pack(side="left", padx=5, fill="x", expand=True)
 
-        write_progress_frame = ttk.LabelFrame(parent, text="Progresso da gravacao", padding=(10, 5))
-        write_progress_frame.pack(fill="x", padx=10, pady=(0, 5))
+        self.lblframe_write_progress = ttk.LabelFrame(parent, text=t("hw.progress_frame_title"), padding=(10, 5))
+        self.lblframe_write_progress.pack(fill="x", padx=10, pady=(0, 5))
 
         write_step_defs = [
-            ("verify_before", "1. Conferindo se a NOR ainda e a mesma do backup..."),
-            ("erase", "2. Apagando NOR..."),
-            ("write", "3. Gravando NOR com o patch..."),
-            ("verify_after", "4. Lendo e verificando a gravacao..."),
+            ("verify_before", "step.verify_before.label"),
+            ("erase", "step.erase.label"),
+            ("write", "step.write.label"),
+            ("verify_after", "step.verify_after.label"),
         ]
         self.write_steps = {}
-        for key, base_text in write_step_defs:
-            row = ttk.Frame(write_progress_frame)
+        for key, label_key in write_step_defs:
+            row = ttk.Frame(self.lblframe_write_progress)
             row.pack(fill="x", pady=1)
-            lbl = ttk.Label(row, text=base_text, width=46, anchor="w")
+            lbl = ttk.Label(row, text=t(label_key), width=46, anchor="w")
             lbl.pack(side="left")
             bar = ttk.Progressbar(row, mode="determinate")
             bar.pack(side="left", padx=8, fill="x", expand=True)
             check = tk.Label(row, text="  ", bg=BG, fg=LOG_OK, font=("Segoe UI", 11, "bold"), width=2)
             check.pack(side="left")
-            self.write_steps[key] = {"label": lbl, "bar": bar, "check": check, "base_text": base_text}
+            self.write_steps[key] = {"label": lbl, "bar": bar, "check": check, "base_key": label_key}
 
         body = ttk.Frame(parent)
         body.pack(fill="both", expand=True, padx=10, pady=10)
@@ -362,11 +418,17 @@ class App(tk.Tk):
         self.txt.tag_configure("info", foreground=LOG_INFO)
         self.txt.tag_configure("muted", foreground=LOG_MUTED)
 
+        self._stage_caption_labels: dict[str, ttk.Label] = {}
+
+        def _stage_caption(frame, key):
+            lbl = ttk.Label(frame, text=t(key), font=("Segoe UI", 9), wraplength=260, justify="center")
+            lbl.pack(pady=(0, 10))
+            self._stage_caption_labels[key] = lbl
+
         self.idle_frame = ttk.Frame(body_right)
         self.idle_anim = GifAnimation(self.idle_frame, str(IDLE_GIF), size=IDLE_SIZE) if IDLE_GIF.exists() else None
         if self.idle_anim is not None:
-            ttk.Label(self.idle_frame, text="Aguardando... conecte o leitor e clique em \"1. Detectar leitor\"",
-                      font=("Segoe UI", 9), wraplength=260, justify="center").pack(pady=(0, 10))
+            _stage_caption(self.idle_frame, "stage.idle")
             self.idle_anim.pack()
 
         self.detecting_frame = ttk.Frame(body_right)
@@ -375,8 +437,7 @@ class App(tk.Tk):
             if DETECTING_GIF.exists() else None
         )
         if self.detecting_anim is not None:
-            ttk.Label(self.detecting_frame, text="Detectando leitor CH341A...",
-                      font=("Segoe UI", 9), wraplength=260, justify="center").pack(pady=(0, 10))
+            _stage_caption(self.detecting_frame, "stage.detecting")
             self.detecting_anim.pack()
 
         self.reading_frame = ttk.Frame(body_right)
@@ -385,8 +446,7 @@ class App(tk.Tk):
             if READING_GIF.exists() else None
         )
         if self.reading_anim is not None:
-            ttk.Label(self.reading_frame, text="Lendo NOR...",
-                      font=("Segoe UI", 9), wraplength=260, justify="center").pack(pady=(0, 10))
+            _stage_caption(self.reading_frame, "stage.reading")
             self.reading_anim.pack()
 
         self.read_success_frame = ttk.Frame(body_right)
@@ -395,8 +455,7 @@ class App(tk.Tk):
             if READ_SUCCESS_GIF.exists() else None
         )
         if self.read_success_anim is not None:
-            ttk.Label(self.read_success_frame, text="Leitura concluida com sucesso!",
-                      font=("Segoe UI", 9), wraplength=260, justify="center").pack(pady=(0, 10))
+            _stage_caption(self.read_success_frame, "stage.read_success")
             self.read_success_anim.pack()
 
         self.preview_frame = ttk.Frame(body_right)
@@ -405,8 +464,7 @@ class App(tk.Tk):
             if PREVIEW_GIF.exists() else None
         )
         if self.preview_anim is not None:
-            ttk.Label(self.preview_frame, text="Preparando pre-visualizacao do patch...",
-                      font=("Segoe UI", 9), wraplength=260, justify="center").pack(pady=(0, 10))
+            _stage_caption(self.preview_frame, "stage.preview")
             self.preview_anim.pack()
 
         self.write_cancelled_frame = ttk.Frame(body_right)
@@ -415,8 +473,7 @@ class App(tk.Tk):
             if WRITE_CANCELLED_GIF.exists() else None
         )
         if self.write_cancelled_anim is not None:
-            ttk.Label(self.write_cancelled_frame, text="Gravacao cancelada.",
-                      font=("Segoe UI", 9), wraplength=260, justify="center").pack(pady=(0, 10))
+            _stage_caption(self.write_cancelled_frame, "stage.write_cancelled")
             self.write_cancelled_anim.pack()
 
         self.writing_frame = ttk.Frame(body_right)
@@ -425,8 +482,7 @@ class App(tk.Tk):
             if WRITING_GIF.exists() else None
         )
         if self.writing_anim is not None:
-            ttk.Label(self.writing_frame, text="Aguardando confirmacao...",
-                      font=("Segoe UI", 9), wraplength=260, justify="center").pack(pady=(0, 10))
+            _stage_caption(self.writing_frame, "stage.writing")
             self.writing_anim.pack()
 
         self.writing_active_frame = ttk.Frame(body_right)
@@ -435,8 +491,7 @@ class App(tk.Tk):
             if WRITING_ACTIVE_GIF.exists() else None
         )
         if self.writing_active_anim is not None:
-            ttk.Label(self.writing_active_frame, text="Gravando NOR...",
-                      font=("Segoe UI", 9), wraplength=260, justify="center").pack(pady=(0, 10))
+            _stage_caption(self.writing_active_frame, "stage.writing_active")
             self.writing_active_anim.pack()
 
         self.write_success_frame = ttk.Frame(body_right)
@@ -445,8 +500,7 @@ class App(tk.Tk):
             if WRITE_SUCCESS_GIF.exists() else None
         )
         if self.write_success_anim is not None:
-            ttk.Label(self.write_success_frame, text="Gravacao concluida com sucesso!",
-                      font=("Segoe UI", 9), wraplength=260, justify="center").pack(pady=(0, 10))
+            _stage_caption(self.write_success_frame, "stage.write_success")
             self.write_success_anim.pack()
 
         self.detect_failed_frame = ttk.Frame(body_right)
@@ -455,8 +509,7 @@ class App(tk.Tk):
             if DETECT_FAILED_GIF.exists() else None
         )
         if self.detect_failed_anim is not None:
-            ttk.Label(self.detect_failed_frame, text="Leitor CH341A nao encontrado.",
-                      font=("Segoe UI", 9), wraplength=260, justify="center").pack(pady=(0, 10))
+            _stage_caption(self.detect_failed_frame, "stage.detect_failed")
             self.detect_failed_anim.pack()
 
         self._stages = {
@@ -473,54 +526,73 @@ class App(tk.Tk):
         }
         self._show_stage("idle")
 
+    def _retranslate_hardware_tab(self):
+        self.btn_detect.configure(text=t("hw.btn_detect"))
+        self.btn_read.configure(text=t("hw.btn_read"))
+        self.lblframe_patch.configure(text=t("hw.patch_frame_title"))
+        self.lbl_target.configure(text=t("hw.target_label"))
+        self.btn_preview.configure(text=t("common.btn_preview"))
+        self.btn_write.configure(text=t("hw.btn_write"))
+        self.btn_restore.configure(text=t("hw.btn_restore"))
+        self.lblframe_write_progress.configure(text=t("hw.progress_frame_title"))
+        for step in self.write_steps.values():
+            step["label"].configure(text=t(step["base_key"]))
+        for key, lbl in self._stage_caption_labels.items():
+            lbl.configure(text=t(key))
+
     # -- Aba "Analisar arquivo (.bin)" ---------------------------------------
     def _build_file_tab(self, parent):
         top = ttk.Frame(parent, padding=10)
         top.pack(fill="x")
-        ttk.Label(top, text="Arquivo NOR (.bin):").pack(side="left")
+        self.lbl_file_path = ttk.Label(top, text=t("file.label_path"))
+        self.lbl_file_path.pack(side="left")
         self.file_path_var = tk.StringVar(value="")
         entry = ttk.Entry(top, textvariable=self.file_path_var, state="readonly")
         entry.pack(side="left", padx=8, fill="x", expand=True)
-        ttk.Button(top, text="Procurar...", command=self.on_file_browse).pack(side="left")
+        self.btn_file_browse = ttk.Button(top, text=t("common.browse"), command=self.on_file_browse)
+        self.btn_file_browse.pack(side="left")
 
-        info_frame = ttk.LabelFrame(parent, text="Informacoes do arquivo", padding=10)
-        info_frame.pack(fill="x", padx=10, pady=(0, 10))
+        self.lblframe_file_info = ttk.LabelFrame(parent, text=t("file.info_frame_title"), padding=10)
+        self.lblframe_file_info.pack(fill="x", padx=10, pady=(0, 10))
 
         file_info_fields = [
-            ("size", "Tamanho do arquivo:"),
-            ("sha256", "SHA-256:"),
-            ("chip", "Chip HDMI detectado:"),
-            ("mac", "Endereco MAC:"),
-            ("raw_id", "Identificador bruto (serie/area adjacente):"),
-            ("cfi", "Codigo CFI encontrado:"),
-            ("wifi_rev", "Revisao Wi-Fi/Bluetooth (EXPERIMENTAL):"),
+            ("size", "file.field.size"),
+            ("sha256", "file.field.sha256"),
+            ("chip", "file.field.chip"),
+            ("mac", "file.field.mac"),
+            ("raw_id", "file.field.raw_id"),
+            ("cfi", "file.field.cfi"),
+            ("wifi_rev", "file.field.wifi_rev"),
         ]
         self.file_info_labels = {}
-        for i, (key, label_text) in enumerate(file_info_fields):
-            ttk.Label(info_frame, text=label_text, font=("Segoe UI", 9, "bold")).grid(
-                row=i, column=0, sticky="w", padx=(0, 10), pady=2)
-            val_lbl = ttk.Label(info_frame, text="--", font=("Consolas", 9))
+        self.file_info_field_labels = {}
+        for i, (key, label_key) in enumerate(file_info_fields):
+            field_lbl = ttk.Label(self.lblframe_file_info, text=t(label_key), font=("Segoe UI", 9, "bold"))
+            field_lbl.grid(row=i, column=0, sticky="w", padx=(0, 10), pady=2)
+            self.file_info_field_labels[key] = field_lbl
+            val_lbl = ttk.Label(self.lblframe_file_info, text="--", font=("Consolas", 9))
             val_lbl.grid(row=i, column=1, sticky="w", pady=2)
             self.file_info_labels[key] = val_lbl
 
-        patch_frame = ttk.LabelFrame(parent, text="Aplicar patch (chip HDMI)", padding=10)
-        patch_frame.pack(fill="x", padx=10, pady=(0, 10))
+        self.lblframe_file_patch = ttk.LabelFrame(parent, text=t("file.patch_frame_title"), padding=10)
+        self.lblframe_file_patch.pack(fill="x", padx=10, pady=(0, 10))
 
-        ttk.Label(patch_frame, text="Gravar arquivo configurado para:").pack(side="left")
+        self.lbl_file_target = ttk.Label(self.lblframe_file_patch, text=t("file.target_label"))
+        self.lbl_file_target.pack(side="left")
         self.file_target_var = tk.StringVar(value=TARGET_NUVOTON)
         combo = ttk.Combobox(
-            patch_frame, textvariable=self.file_target_var, state="readonly", width=28,
+            self.lblframe_file_patch, textvariable=self.file_target_var, state="readonly", width=28,
             values=[TARGET_REALTEK, TARGET_NUVOTON]
         )
         combo.set(TARGET_NUVOTON)
         combo.pack(side="left", padx=8)
 
-        self.btn_file_preview = ttk.Button(patch_frame, text="Pre-visualizar alteracoes",
+        self.btn_file_preview = ttk.Button(self.lblframe_file_patch, text=t("common.btn_preview"),
                                             command=self.on_file_preview, state="disabled")
         self.btn_file_preview.pack(side="left", padx=5)
 
         self.btn_file_save = tk.Button(
-            patch_frame, text="Salvar NOR com patch...",
+            self.lblframe_file_patch, text=t("file.btn_save"),
             command=self.on_file_save, state="disabled",
             bg=BG_ALT, fg=FG, font=("Segoe UI", 9, "bold"),
             activebackground=BG_ACTIVE, activeforeground=FG,
@@ -550,10 +622,21 @@ class App(tk.Tk):
         self.file_txt.configure(state="disabled")
         self.file_txt.see("end")
 
+    def _retranslate_file_tab(self):
+        self.lbl_file_path.configure(text=t("file.label_path"))
+        self.btn_file_browse.configure(text=t("common.browse"))
+        self.lblframe_file_info.configure(text=t("file.info_frame_title"))
+        for key, lbl in self.file_info_field_labels.items():
+            lbl.configure(text=t(f"file.field.{key}"))
+        self.lblframe_file_patch.configure(text=t("file.patch_frame_title"))
+        self.lbl_file_target.configure(text=t("file.target_label"))
+        self.btn_file_preview.configure(text=t("common.btn_preview"))
+        self.btn_file_save.configure(text=t("file.btn_save"))
+
     def on_file_browse(self):
         path_str = filedialog.askopenfilename(
-            title="Selecione o arquivo NOR (.bin) para analisar",
-            filetypes=[("Arquivo NOR", "*.bin"), ("Todos os arquivos", "*.*")],
+            title=t("file.browse_title"),
+            filetypes=[(t("common.file_nor_filter"), "*.bin"), (t("common.file_all_filter"), "*.*")],
         )
         if not path_str:
             return
@@ -564,7 +647,7 @@ class App(tk.Tk):
         try:
             data = path.read_bytes()
         except OSError as e:
-            messagebox.showerror("Erro ao abrir arquivo", str(e))
+            messagebox.showerror(t("common.err_open_file_title"), str(e))
             return
 
         info = parse_nor(data)
@@ -573,8 +656,8 @@ class App(tk.Tk):
         self.file_patch = None
         self.btn_file_save.configure(state="disabled")
 
-        self.file_info_labels["size"].configure(
-            text=f"{info.size} bytes" + (" (OK)" if info.size_ok else " *** TAMANHO INESPERADO ***"))
+        size_suffix = t("common.size_ok_suffix") if info.size_ok else t("common.size_bad_suffix")
+        self.file_info_labels["size"].configure(text=f"{info.size} bytes{size_suffix}")
         self.file_info_labels["sha256"].configure(text=info.sha256)
         chip_text = info.chip_name if info.chip_raw < 0 else f"{info.chip_name} (byte bruto 0x{info.chip_raw:02X})"
         self.file_info_labels["chip"].configure(text=chip_text)
@@ -586,14 +669,14 @@ class App(tk.Tk):
         self.file_txt.configure(state="normal")
         self.file_txt.delete("1.0", "end")
         self.file_txt.configure(state="disabled")
-        self.file_log(f"Arquivo carregado: {path}", "info")
+        self.file_log(t("file.log.loaded", path=path), "info")
         self.file_log(
-            f"Tamanho: {info.size} bytes" + (" (OK)" if info.size_ok else " *** TAMANHO INESPERADO ***"),
+            t("file.log.size", size=info.size, suffix=size_suffix),
             "ok" if info.size_ok else "error",
         )
         if info.warnings:
             self.file_log("")
-            self.file_log("AVISOS:", "warn")
+            self.file_log(t("common.warnings_label"), "warn")
             for w in info.warnings:
                 self.file_log(f"  - {w}", "warn")
 
@@ -602,9 +685,8 @@ class App(tk.Tk):
         else:
             self.btn_file_preview.configure(state="disabled")
             messagebox.showwarning(
-                "Tamanho inesperado",
-                f"O arquivo tem {info.size} bytes, mas o esperado e {EXPECTED_SIZE} "
-                "bytes (2 MB). Pre-visualizacao de patch desabilitada."
+                t("file.size_warn_title"),
+                t("file.size_warn_body", size=info.size, expected=EXPECTED_SIZE)
             )
 
     def on_file_preview(self):
@@ -615,26 +697,18 @@ class App(tk.Tk):
         self.file_patch = result
 
         self.file_log("=" * 60, "muted")
-        self.file_log(f"PRE-VISUALIZACAO DO PATCH -- alvo: {TARGET_LABEL[target]}", "patch")
+        self.file_log(t("file.log.preview_title", target=TARGET_LABEL[target]), "patch")
         for ch in result.changes:
             self.file_log(
-                f"  offset 0x{ch.offset:06X}: {ch.old.hex(' ').upper()} -> "
-                f"{ch.new.hex(' ').upper()}   [{ch.description}]", "patch"
+                t("file.log.preview_change", offset=f"{ch.offset:06X}",
+                  old=ch.old.hex(' ').upper(), new=ch.new.hex(' ').upper(), desc=ch.description),
+                "patch"
             )
         self.file_log("")
         if result.checksum_left_stale:
-            self.file_log(
-                "*** ATENCAO: o checksum em 0x1C41FE-0x1C41FF NAO foi resolvido "
-                "pra essa combinacao de chip + REV Wi-Fi (ainda nao vista). "
-                "Ficou com o valor antigo. So use esse arquivo em placa de "
-                "bancada/teste. ***", "warn"
-            )
+            self.file_log(t("file.log.checksum_stale"), "warn")
         else:
-            self.file_log(
-                "Checksum em 0x1C41FE-0x1C41FF resolvido com valor confirmado "
-                "(ver NOTES.md) -- combinacao de chip + REV Wi-Fi ja vista em "
-                "amostras reais.", "ok"
-            )
+            self.file_log(t("file.log.checksum_resolved"), "ok")
         self.file_log("=" * 60, "muted")
         self.btn_file_save.configure(state="normal")
 
@@ -644,31 +718,26 @@ class App(tk.Tk):
         current_path = pathlib.Path(self.file_path_var.get())
         default_name = f"{current_path.stem}_patched.bin"
         out_path_str = filedialog.asksaveasfilename(
-            title="Salvar NOR com patch aplicado",
+            title=t("file.save_title"),
             defaultextension=".bin",
             initialfile=default_name,
             initialdir=str(current_path.parent),
-            filetypes=[("Arquivo NOR", "*.bin"), ("Todos os arquivos", "*.*")],
+            filetypes=[(t("common.file_nor_filter"), "*.bin"), (t("common.file_all_filter"), "*.*")],
         )
         if not out_path_str:
             return
         out_path = pathlib.Path(out_path_str)
         out_path.write_bytes(self.file_patch.data)
-        self.file_log(f"Arquivo salvo com patch aplicado em: {out_path}", "ok")
+        self.file_log(t("file.log.saved", path=out_path), "ok")
         if self.file_patch.checksum_left_stale:
             messagebox.showinfo(
-                "Arquivo salvo",
-                f"NOR com patch salva em:\n{out_path}\n\n"
-                "Lembrete: o checksum em 0x1C41FE-0x1C41FF NAO foi resolvido "
-                "pra essa combinacao de chip + REV Wi-Fi -- use so em placa "
-                "de bancada/teste."
+                t("file.saved_title"),
+                t("file.saved_body_stale", path=out_path)
             )
         else:
             messagebox.showinfo(
-                "Arquivo salvo",
-                f"NOR com patch salva em:\n{out_path}\n\n"
-                "Checksum em 0x1C41FE-0x1C41FF resolvido com valor confirmado "
-                "(ver NOTES.md)."
+                t("file.saved_title"),
+                t("file.saved_body_ok", path=out_path)
             )
 
     # -- Aba "Leitor UART" ----------------------------------------------------
@@ -676,58 +745,63 @@ class App(tk.Tk):
         top = ttk.Frame(parent, padding=10)
         top.pack(fill="x")
 
-        ttk.Label(top, text="Porta:").pack(side="left")
+        self.lbl_uart_port = ttk.Label(top, text=t("uart.port_label"))
+        self.lbl_uart_port.pack(side="left")
         self.uart_port_var = tk.StringVar(value="")
         self.combo_uart_port = ttk.Combobox(top, textvariable=self.uart_port_var,
                                              state="readonly", width=14, values=list_ports())
         self.combo_uart_port.pack(side="left", padx=(4, 8))
 
-        ttk.Button(top, text="Atualizar portas", command=self.on_uart_refresh_ports).pack(side="left")
+        self.btn_uart_refresh = ttk.Button(top, text=t("uart.btn_refresh"), command=self.on_uart_refresh_ports)
+        self.btn_uart_refresh.pack(side="left")
 
-        ttk.Label(top, text="  Baud:").pack(side="left")
+        self.lbl_uart_baud = ttk.Label(top, text=t("uart.baud_label"))
+        self.lbl_uart_baud.pack(side="left")
         self.uart_baud_var = tk.StringVar(value=str(DEFAULT_BAUDRATE))
         self.combo_uart_baud = ttk.Combobox(top, textvariable=self.uart_baud_var, width=10,
                                              values=[str(b) for b in COMMON_BAUDRATES])
         self.combo_uart_baud.pack(side="left", padx=(4, 8))
 
-        self.btn_uart_connect = ttk.Button(top, text="Conectar", command=self.on_uart_toggle)
+        self.btn_uart_connect = ttk.Button(top, text=t("uart.btn_connect"), command=self.on_uart_toggle)
         self.btn_uart_connect.pack(side="left", padx=(8, 0))
 
         status_row = ttk.Frame(parent, padding=(10, 0))
         status_row.pack(fill="x")
-        self.lbl_uart_status = ttk.Label(status_row, text="Status: desconectado")
+        self.lbl_uart_status = ttk.Label(status_row, text=t("uart.status_disconnected"))
         self.lbl_uart_status.pack(side="left")
 
         warn_row = ttk.Frame(parent, padding=(10, 4))
         warn_row.pack(fill="x")
-        ttk.Label(
-            warn_row,
-            text=("Captura bruta do log serial -- nao interpreta codigos de erro. "
-                  "115200 e o baud mais comum em debug UART, mas confirme se nao vier "
-                  "nada legivel. Confirme a tensao do adaptador (muitas placas usam "
-                  "3.3V TTL) antes de conectar."),
+        self.lbl_uart_warning = ttk.Label(
+            warn_row, text=t("uart.warning"),
             font=("Segoe UI", 8), foreground=FG_MUTED, wraplength=960, justify="left",
-        ).pack(side="left")
+        )
+        self.lbl_uart_warning.pack(side="left")
 
         ref_row = ttk.Frame(parent, padding=(10, 0, 10, 4))
         ref_row.pack(fill="x")
-        ttk.Label(ref_row, text="Catalogo de codigos (abre no navegador):").pack(side="left")
+        self.lbl_uart_catalog = ttk.Label(ref_row, text=t("uart.catalog_label"))
+        self.lbl_uart_catalog.pack(side="left")
         for label, url in UART_REFERENCE_LINKS:
             ttk.Button(ref_row, text=label, command=lambda u=url: webbrowser.open(u)).pack(side="left", padx=4)
 
         actions_row = ttk.Frame(parent, padding=(10, 0, 10, 5))
         actions_row.pack(fill="x")
-        ttk.Button(actions_row, text="Limpar log", command=self.on_uart_clear).pack(side="left")
-        ttk.Button(actions_row, text="Salvar log em arquivo...", command=self.on_uart_save).pack(side="left", padx=8)
+        self.btn_uart_clear = ttk.Button(actions_row, text=t("uart.btn_clear"), command=self.on_uart_clear)
+        self.btn_uart_clear.pack(side="left")
+        self.btn_uart_save = ttk.Button(actions_row, text=t("uart.btn_save_log"), command=self.on_uart_save)
+        self.btn_uart_save.pack(side="left", padx=8)
 
         send_row = ttk.Frame(parent, padding=(10, 0, 10, 10))
         send_row.pack(fill="x")
-        ttk.Label(send_row, text="Enviar (opcional):").pack(side="left")
+        self.lbl_uart_send = ttk.Label(send_row, text=t("uart.send_label"))
+        self.lbl_uart_send.pack(side="left")
         self.uart_send_var = tk.StringVar(value="")
         send_entry = ttk.Entry(send_row, textvariable=self.uart_send_var)
         send_entry.pack(side="left", padx=8, fill="x", expand=True)
         send_entry.bind("<Return>", lambda _evt: self.on_uart_send())
-        ttk.Button(send_row, text="Enviar", command=self.on_uart_send).pack(side="left")
+        self.btn_uart_send = ttk.Button(send_row, text=t("uart.btn_send"), command=self.on_uart_send)
+        self.btn_uart_send.pack(side="left")
 
         log_frame = ttk.Frame(parent, padding=(10, 0, 10, 10))
         log_frame.pack(fill="both", expand=True)
@@ -751,10 +825,26 @@ class App(tk.Tk):
         self.uart_txt.configure(state="disabled")
         self.uart_txt.see("end")
 
+    def _retranslate_uart_tab(self):
+        self.lbl_uart_port.configure(text=t("uart.port_label"))
+        self.btn_uart_refresh.configure(text=t("uart.btn_refresh"))
+        self.lbl_uart_baud.configure(text=t("uart.baud_label"))
+        self.btn_uart_connect.configure(text=t("uart.btn_disconnect") if self.uart_connected else t("uart.btn_connect"))
+        self.lbl_uart_status.configure(
+            text=t("uart.status_connected", port=self.uart_port_var.get(), baud=self.uart_baud_var.get())
+            if self.uart_connected else t("uart.status_disconnected")
+        )
+        self.lbl_uart_warning.configure(text=t("uart.warning"))
+        self.lbl_uart_catalog.configure(text=t("uart.catalog_label"))
+        self.btn_uart_clear.configure(text=t("uart.btn_clear"))
+        self.btn_uart_save.configure(text=t("uart.btn_save_log"))
+        self.lbl_uart_send.configure(text=t("uart.send_label"))
+        self.btn_uart_send.configure(text=t("uart.btn_send"))
+
     def on_uart_refresh_ports(self):
         ports = list_ports()
         self.combo_uart_port.configure(values=ports)
-        self.uart_log(f"Portas encontradas: {', '.join(ports) if ports else '(nenhuma)'}", "muted")
+        self.uart_log(t("uart.log.ports_found", ports=', '.join(ports) if ports else t("uart.ports_none")), "muted")
 
     def on_uart_toggle(self):
         if self.uart_connected:
@@ -765,32 +855,32 @@ class App(tk.Tk):
     def _uart_connect(self):
         port = self.uart_port_var.get().strip()
         if not port:
-            messagebox.showinfo("Selecione a porta", "Escolha uma porta COM antes de conectar.")
+            messagebox.showinfo(t("uart.select_port_title"), t("uart.select_port_body"))
             return
         try:
             baud = int(self.uart_baud_var.get().strip())
         except ValueError:
-            messagebox.showerror("Baud invalido", "O baud rate precisa ser um numero inteiro.")
+            messagebox.showerror(t("uart.invalid_baud_title"), t("uart.invalid_baud_body"))
             return
 
         reader = UartReader(port, baud)
         try:
             reader.open()
         except UartError as e:
-            self.uart_log(f"ERRO: {e}", "error")
-            messagebox.showerror("Erro ao conectar", str(e))
+            self.uart_log(t("uart.log.error", err=e), "error")
+            messagebox.showerror(t("uart.connect_err_title"), str(e))
             return
 
         self.uart = reader
         self.uart_connected = True
         self.uart.start(self._on_uart_line, self._on_uart_error)
 
-        self.lbl_uart_status.configure(text=f"Status: conectado em {port} @ {baud} bps")
-        self.btn_uart_connect.configure(text="Desconectar")
+        self.lbl_uart_status.configure(text=t("uart.status_connected", port=port, baud=baud))
+        self.btn_uart_connect.configure(text=t("uart.btn_disconnect"))
         self.combo_uart_port.configure(state="disabled")
         self.combo_uart_baud.configure(state="disabled")
         self.uart_log("=" * 60, "muted")
-        self.uart_log(f"Conectado em {port} @ {baud} bps. Capturando log...", "ok")
+        self.uart_log(t("uart.log.connected", port=port, baud=baud), "ok")
         self.uart_log("=" * 60, "muted")
 
     def _uart_disconnect(self):
@@ -798,11 +888,11 @@ class App(tk.Tk):
             self.uart.close()
             self.uart = None
         self.uart_connected = False
-        self.lbl_uart_status.configure(text="Status: desconectado")
-        self.btn_uart_connect.configure(text="Conectar")
+        self.lbl_uart_status.configure(text=t("uart.status_disconnected"))
+        self.btn_uart_connect.configure(text=t("uart.btn_connect"))
         self.combo_uart_port.configure(state="readonly")
         self.combo_uart_baud.configure(state="normal")
-        self.uart_log("Desconectado.", "muted")
+        self.uart_log(t("uart.log.disconnected"), "muted")
 
     def _on_uart_line(self, text: str):
         self.after(0, lambda: self._append_uart_line(text))
@@ -823,7 +913,7 @@ class App(tk.Tk):
         self.after(0, lambda: self._uart_error(msg))
 
     def _uart_error(self, msg: str):
-        self.uart_log(f"ERRO na porta serial: {msg}", "error")
+        self.uart_log(t("uart.log.port_error", msg=msg), "error")
         self._uart_disconnect()
 
     def on_uart_clear(self):
@@ -834,23 +924,23 @@ class App(tk.Tk):
     def on_uart_save(self):
         content = self.uart_txt.get("1.0", "end")
         if not content.strip():
-            messagebox.showinfo("Log vazio", "Nao ha nada capturado ainda pra salvar.")
+            messagebox.showinfo(t("uart.log_empty_title"), t("uart.log_empty_body"))
             return
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         out_path_str = filedialog.asksaveasfilename(
-            title="Salvar log UART",
+            title=t("uart.save_log_title"),
             defaultextension=".txt",
             initialfile=f"uart_log_{timestamp}.txt",
-            filetypes=[("Arquivo de texto", "*.txt"), ("Todos os arquivos", "*.*")],
+            filetypes=[(t("uart.text_file_filter"), "*.txt"), (t("common.file_all_filter"), "*.*")],
         )
         if not out_path_str:
             return
         pathlib.Path(out_path_str).write_text(content, encoding="utf-8")
-        self.uart_log(f"Log salvo em: {out_path_str}", "ok")
+        self.uart_log(t("uart.log.saved", path=out_path_str), "ok")
 
     def on_uart_send(self):
         if not self.uart_connected or self.uart is None:
-            messagebox.showinfo("Nao conectado", "Conecte a porta UART antes de enviar.")
+            messagebox.showinfo(t("uart.not_connected_title"), t("uart.not_connected_body"))
             return
         text = self.uart_send_var.get()
         if not text:
@@ -863,26 +953,24 @@ class App(tk.Tk):
     def _build_controller_tab(self, parent):
         top = ttk.Frame(parent, padding=10)
         top.pack(fill="x")
-        ttk.Button(top, text="Detectar controle", command=self.on_controller_detect).pack(side="left")
-        self.lbl_controller_status = ttk.Label(top, text="  Nenhum controle detectado ainda")
+        self.btn_controller_detect = ttk.Button(top, text=t("ctrl.btn_detect"), command=self.on_controller_detect)
+        self.btn_controller_detect.pack(side="left")
+        self.lbl_controller_status = ttk.Label(top, text=t("ctrl.status_none"))
         self.lbl_controller_status.pack(side="left", padx=8)
-        self.btn_controller_connect = ttk.Button(top, text="Conectar", command=self.on_controller_connect,
+        self.btn_controller_connect = ttk.Button(top, text=t("ctrl.btn_connect"), command=self.on_controller_connect,
                                                   state="disabled")
         self.btn_controller_connect.pack(side="left", padx=4)
-        self.btn_controller_disconnect = ttk.Button(top, text="Desconectar", command=self.on_controller_disconnect,
+        self.btn_controller_disconnect = ttk.Button(top, text=t("ctrl.btn_disconnect"), command=self.on_controller_disconnect,
                                                      state="disabled")
         self.btn_controller_disconnect.pack(side="left", padx=4)
 
         warn_row = ttk.Frame(parent, padding=(10, 0, 10, 6))
         warn_row.pack(fill="x")
-        ttk.Label(
-            warn_row,
-            text=("Leitura via HID bruto, nativo, sem precisar de internet/navegador. Conecte o "
-                  "controle por CABO USB. Analogicos, gatilhos, botoes e D-pad sao de alta confianca; "
-                  "touchpad, bateria, vibracao e barra de luz sao EXPERIMENTAIS (ainda nao validados "
-                  "com hardware real) -- teste e me avise se algo vier errado."),
+        self.lbl_controller_warning = ttk.Label(
+            warn_row, text=t("ctrl.warning"),
             font=("Segoe UI", 8), foreground=FG_MUTED, wraplength=960, justify="left",
-        ).pack(side="left")
+        )
+        self.lbl_controller_warning.pack(side="left")
 
         body = ttk.Frame(parent, padding=10)
         body.pack(fill="both", expand=True)
@@ -890,76 +978,109 @@ class App(tk.Tk):
         left_col = ttk.Frame(body)
         left_col.pack(side="left", fill="y", padx=(0, 24))
 
-        ttk.Label(left_col, text="Analogico esquerdo", font=("Segoe UI", 9, "bold")).pack()
+        self.lbl_left_stick_title = ttk.Label(left_col, text=t("ctrl.left_stick"), font=("Segoe UI", 9, "bold"))
+        self.lbl_left_stick_title.pack()
         self.canvas_ls = tk.Canvas(left_col, width=120, height=120, bg=BG, highlightthickness=0)
         self.canvas_ls.pack(pady=(4, 4))
         self._draw_stick_gauge(self.canvas_ls)
-        self.lbl_ls_val = ttk.Label(left_col, text="X: 128  Y: 128")
+        self.lbl_ls_val = ttk.Label(left_col, text=t("ctrl.stick_xy", x=128, y=128))
         self.lbl_ls_val.pack()
 
-        ttk.Label(left_col, text="Analogico direito", font=("Segoe UI", 9, "bold")).pack(pady=(14, 0))
+        self.lbl_right_stick_title = ttk.Label(left_col, text=t("ctrl.right_stick"), font=("Segoe UI", 9, "bold"))
+        self.lbl_right_stick_title.pack(pady=(14, 0))
         self.canvas_rs = tk.Canvas(left_col, width=120, height=120, bg=BG, highlightthickness=0)
         self.canvas_rs.pack(pady=(4, 4))
         self._draw_stick_gauge(self.canvas_rs)
-        self.lbl_rs_val = ttk.Label(left_col, text="X: 128  Y: 128")
+        self.lbl_rs_val = ttk.Label(left_col, text=t("ctrl.stick_xy", x=128, y=128))
         self.lbl_rs_val.pack()
 
-        ttk.Label(left_col, text="Gatilhos", font=("Segoe UI", 9, "bold")).pack(pady=(16, 2))
-        ttk.Label(left_col, text="L2").pack(anchor="w")
+        self.lbl_triggers_title = ttk.Label(left_col, text=t("ctrl.triggers"), font=("Segoe UI", 9, "bold"))
+        self.lbl_triggers_title.pack(pady=(16, 2))
+        self.lbl_l2_title = ttk.Label(left_col, text="L2")
+        self.lbl_l2_title.pack(anchor="w")
         self.bar_l2 = ttk.Progressbar(left_col, mode="determinate", maximum=255, length=150)
         self.bar_l2.pack()
-        ttk.Label(left_col, text="R2").pack(anchor="w", pady=(8, 0))
+        self.lbl_r2_title = ttk.Label(left_col, text="R2")
+        self.lbl_r2_title.pack(anchor="w", pady=(8, 0))
         self.bar_r2 = ttk.Progressbar(left_col, mode="determinate", maximum=255, length=150)
         self.bar_r2.pack()
 
         mid_col = ttk.Frame(body)
         mid_col.pack(side="left", padx=(0, 24))
-        ttk.Label(mid_col, text="Diagrama (clique nos botoes do controle)", font=("Segoe UI", 9, "bold")).pack()
+        self.lbl_diagram_title = ttk.Label(mid_col, text=t("ctrl.diagram_label"), font=("Segoe UI", 9, "bold"))
+        self.lbl_diagram_title.pack()
         self._build_controller_diagram(mid_col)
 
         right_col = ttk.Frame(body)
         right_col.pack(side="left", fill="both", expand=True)
 
-        self.lbl_battery = ttk.Label(right_col, text="Bateria (experimental): --")
+        self.lbl_battery = ttk.Label(right_col, text=t("ctrl.battery"))
         self.lbl_battery.pack(anchor="w")
 
-        vib_frame = ttk.LabelFrame(right_col, text="Teste de vibracao (experimental)", padding=8)
-        vib_frame.pack(fill="x", pady=(16, 8))
-        ttk.Button(vib_frame, text="Motor esquerdo (forte)",
-                   command=lambda: self.on_controller_rumble("left")).pack(side="left", padx=4)
-        ttk.Button(vib_frame, text="Motor direito (fraco)",
-                   command=lambda: self.on_controller_rumble("right")).pack(side="left", padx=4)
-        ttk.Button(vib_frame, text="Parar",
-                   command=lambda: self.on_controller_rumble("stop")).pack(side="left", padx=4)
+        self.lblframe_vib = ttk.LabelFrame(right_col, text=t("ctrl.vib_frame_title"), padding=8)
+        self.lblframe_vib.pack(fill="x", pady=(16, 8))
+        self.btn_rumble_left = ttk.Button(self.lblframe_vib, text=t("ctrl.motor_left"),
+                   command=lambda: self.on_controller_rumble("left"))
+        self.btn_rumble_left.pack(side="left", padx=4)
+        self.btn_rumble_right = ttk.Button(self.lblframe_vib, text=t("ctrl.motor_right"),
+                   command=lambda: self.on_controller_rumble("right"))
+        self.btn_rumble_right.pack(side="left", padx=4)
+        self.btn_rumble_stop = ttk.Button(self.lblframe_vib, text=t("ctrl.stop"),
+                   command=lambda: self.on_controller_rumble("stop"))
+        self.btn_rumble_stop.pack(side="left", padx=4)
 
-        light_frame = ttk.LabelFrame(right_col, text="Teste da barra de luz", padding=8)
-        light_frame.pack(fill="x")
-        for name, rgb in [("Vermelho", (255, 0, 0)), ("Verde", (0, 255, 0)), ("Azul", (0, 0, 255)),
-                           ("Branco", (255, 255, 255)), ("Apagar", (0, 0, 0))]:
-            ttk.Button(light_frame, text=name, command=lambda c=rgb: self.on_controller_light(c)).pack(
-                side="left", padx=3)
+        self.lblframe_light = ttk.LabelFrame(right_col, text=t("ctrl.light_frame_title"), padding=8)
+        self.lblframe_light.pack(fill="x")
+        self.btn_lights = {}
+        for key, rgb in [("color_red", (255, 0, 0)), ("color_green", (0, 255, 0)), ("color_blue", (0, 0, 255)),
+                           ("color_white", (255, 255, 255)), ("color_off", (0, 0, 0))]:
+            btn = ttk.Button(self.lblframe_light, text=t(f"ctrl.{key}"), command=lambda c=rgb: self.on_controller_light(c))
+            btn.pack(side="left", padx=3)
+            self.btn_lights[key] = btn
 
-        calib_frame = ttk.LabelFrame(right_col, text="Calibracao do analogico (grava no controle)", padding=8)
-        calib_frame.pack(fill="x", pady=(16, 0))
-        ttk.Label(
-            calib_frame,
-            text=("Mesmo recurso do dualshock-tools.github.io, feito nativamente aqui. So fica "
-                  "permanente se voce clicar em 'Salvar alteracoes permanentemente' depois -- "
-                  "ate la da pra testar e desistir sem risco."),
+        self.lblframe_calib = ttk.LabelFrame(right_col, text=t("ctrl.calib_frame_title"), padding=8)
+        self.lblframe_calib.pack(fill="x", pady=(16, 0))
+        self.lbl_calib_note = ttk.Label(
+            self.lblframe_calib, text=t("ctrl.calib_note"),
             font=("Segoe UI", 8), foreground=FG_MUTED, wraplength=260, justify="left",
-        ).pack(anchor="w", pady=(0, 6))
-        ttk.Button(calib_frame, text="Calibrar centro do analogico",
-                   command=self.on_controller_calibrate_center).pack(fill="x", pady=2)
-        ttk.Button(calib_frame, text="Calibrar alcance do analogico...",
-                   command=self.on_controller_calibrate_range).pack(fill="x", pady=2)
+        )
+        self.lbl_calib_note.pack(anchor="w", pady=(0, 6))
+        self.btn_calib_center = ttk.Button(self.lblframe_calib, text=t("ctrl.btn_calib_center"),
+                   command=self.on_controller_calibrate_center)
+        self.btn_calib_center.pack(fill="x", pady=2)
+        self.btn_calib_range = ttk.Button(self.lblframe_calib, text=t("ctrl.btn_calib_range"),
+                   command=self.on_controller_calibrate_range)
+        self.btn_calib_range.pack(fill="x", pady=2)
         self.btn_controller_flash = ttk.Button(
-            calib_frame, text="Salvar alteracoes permanentemente",
+            self.lblframe_calib, text=t("ctrl.btn_flash"),
             command=self.on_controller_flash, state="disabled")
         self.btn_controller_flash.pack(fill="x", pady=(6, 2))
         self.lbl_controller_calib_status = ttk.Label(
-            calib_frame, text="Nenhuma alteracao de calibracao pendente nesta sessao.",
+            self.lblframe_calib, text=t("ctrl.calib_status_idle"),
             font=("Segoe UI", 8), foreground=FG_MUTED, wraplength=260, justify="left")
         self.lbl_controller_calib_status.pack(anchor="w", pady=(4, 0))
+
+    def _retranslate_controller_tab(self):
+        self.btn_controller_detect.configure(text=t("ctrl.btn_detect"))
+        self.btn_controller_connect.configure(text=t("ctrl.btn_connect"))
+        self.btn_controller_disconnect.configure(text=t("ctrl.btn_disconnect"))
+        self.lbl_controller_warning.configure(text=t("ctrl.warning"))
+        self.lbl_left_stick_title.configure(text=t("ctrl.left_stick"))
+        self.lbl_right_stick_title.configure(text=t("ctrl.right_stick"))
+        self.lbl_triggers_title.configure(text=t("ctrl.triggers"))
+        self.lbl_diagram_title.configure(text=t("ctrl.diagram_label"))
+        self.lblframe_vib.configure(text=t("ctrl.vib_frame_title"))
+        self.btn_rumble_left.configure(text=t("ctrl.motor_left"))
+        self.btn_rumble_right.configure(text=t("ctrl.motor_right"))
+        self.btn_rumble_stop.configure(text=t("ctrl.stop"))
+        self.lblframe_light.configure(text=t("ctrl.light_frame_title"))
+        for key, btn in self.btn_lights.items():
+            btn.configure(text=t(f"ctrl.{key}"))
+        self.lblframe_calib.configure(text=t("ctrl.calib_frame_title"))
+        self.lbl_calib_note.configure(text=t("ctrl.calib_note"))
+        self.btn_calib_center.configure(text=t("ctrl.btn_calib_center"))
+        self.btn_calib_range.configure(text=t("ctrl.btn_calib_range"))
+        self.btn_controller_flash.configure(text=t("ctrl.btn_flash"))
 
     def _build_controller_diagram(self, parent):
         """Diagrama do controle feito a partir do SVG real do DualSense usado
@@ -1016,14 +1137,13 @@ class App(tk.Tk):
         devices = dualsense.list_devices()
         self._controller_devices = devices
         if not devices:
-            self.lbl_controller_status.configure(
-                text="  Nenhum controle DualSense encontrado (conecte por cabo USB)")
+            self.lbl_controller_status.configure(text=t("ctrl.not_found_extra"))
             self.btn_controller_connect.configure(state="disabled")
             return
         first = devices[0]
-        name = dualsense.KNOWN_PRODUCT_IDS.get(first["product_id"], "Controle Sony")
-        extra = f" (+{len(devices) - 1} outro(s))" if len(devices) > 1 else ""
-        self.lbl_controller_status.configure(text=f"  Encontrado: {name}{extra}")
+        name = dualsense.KNOWN_PRODUCT_IDS.get(first["product_id"], t("ctrl.sony_controller"))
+        extra = t("ctrl.found_extra", n=len(devices) - 1) if len(devices) > 1 else ""
+        self.lbl_controller_status.configure(text=t("ctrl.found_status", name=name, extra=extra))
         self.btn_controller_connect.configure(state="normal")
 
     def on_controller_connect(self):
@@ -1034,13 +1154,13 @@ class App(tk.Tk):
         try:
             controller.open()
         except DualSenseError as e:
-            messagebox.showerror("Erro ao conectar controle", str(e))
+            messagebox.showerror(t("ctrl.connect_err_title"), str(e))
             return
         self.controller = controller
         self.controller.start()
         self.btn_controller_connect.configure(state="disabled")
         self.btn_controller_disconnect.configure(state="normal")
-        self.lbl_controller_status.configure(text="  Conectado -- mexa nos sticks/botoes para testar")
+        self.lbl_controller_status.configure(text=t("ctrl.connected_status"))
         self._poll_controller()
 
     def _poll_controller(self):
@@ -1049,14 +1169,14 @@ class App(tk.Tk):
         s = self.controller.state
         self._update_stick(self.canvas_ls, s.left_stick_x, s.left_stick_y)
         self._update_stick(self.canvas_rs, s.right_stick_x, s.right_stick_y)
-        self.lbl_ls_val.configure(text=f"X: {s.left_stick_x}  Y: {s.left_stick_y}")
-        self.lbl_rs_val.configure(text=f"X: {s.right_stick_x}  Y: {s.right_stick_y}")
+        self.lbl_ls_val.configure(text=t("ctrl.stick_xy", x=s.left_stick_x, y=s.left_stick_y))
+        self.lbl_rs_val.configure(text=t("ctrl.stick_xy", x=s.right_stick_x, y=s.right_stick_y))
 
         self._update_diagram(s)
 
         if s.battery_percent is not None:
-            charging = " (carregando)" if s.battery_charging else ""
-            self.lbl_battery.configure(text=f"Bateria (experimental): {s.battery_percent}%{charging}")
+            charging = t("ctrl.charging_suffix") if s.battery_charging else ""
+            self.lbl_battery.configure(text=t("ctrl.battery_value", pct=s.battery_percent, charging=charging))
 
         self._controller_poll_job = self.after(33, self._poll_controller)
 
@@ -1148,10 +1268,10 @@ class App(tk.Tk):
             self.controller = None
         self.btn_controller_connect.configure(state="normal" if self._controller_devices else "disabled")
         self.btn_controller_disconnect.configure(state="disabled")
-        self.lbl_controller_status.configure(text="  Desconectado")
+        self.lbl_controller_status.configure(text=t("ctrl.disconnected_status"))
         self._controller_has_pending_changes = False
         self.btn_controller_flash.configure(state="disabled")
-        self.set_controller_calib_status("Nenhuma alteracao de calibracao pendente nesta sessao.")
+        self.set_controller_calib_status(t("ctrl.calib_status_idle"))
 
     def on_controller_rumble(self, which: str):
         if self.controller is None:
@@ -1164,7 +1284,7 @@ class App(tk.Tk):
             else:
                 self.controller.set_rumble_and_light(0, 0, 0, 0, 0)
         except DualSenseError as e:
-            messagebox.showerror("Erro ao testar vibracao", str(e))
+            messagebox.showerror(t("ctrl.rumble_err_title"), str(e))
 
     def on_controller_light(self, rgb: tuple[int, int, int]):
         if self.controller is None:
@@ -1172,7 +1292,7 @@ class App(tk.Tk):
         try:
             self.controller.set_rumble_and_light(0, 0, *rgb)
         except DualSenseError as e:
-            messagebox.showerror("Erro ao testar barra de luz", str(e))
+            messagebox.showerror(t("ctrl.light_err_title"), str(e))
 
     # -- Calibracao do analogico (grava no controle) -------------------------
     def set_controller_calib_status(self, text: str):
@@ -1180,27 +1300,21 @@ class App(tk.Tk):
 
     def on_controller_calibrate_center(self):
         if self.controller is None:
-            messagebox.showinfo("Nao conectado", "Conecte o controle antes de calibrar.")
+            messagebox.showinfo(t("ctrl.not_connected_title"), t("ctrl.not_connected_body"))
             return
         proceed = messagebox.askyesno(
-            "Calibrar centro do analogico",
-            "Solte os dois analogicos (deixe-os parados, sem tocar) antes de continuar.\n\n"
-            "Isto recalcula o ponto central dos dois sticks. A mudanca fica ativa na hora, "
-            "mas so e gravada de forma permanente se voce clicar depois em "
-            "'Salvar alteracoes permanentemente' -- ate la, da pra desistir sem risco.\n\n"
-            "Continuar?",
+            t("ctrl.calib_center_title"),
+            t("ctrl.calib_center_body"),
         )
         if not proceed:
             return
-        self.set_controller_calib_status("Calibrando centro do analogico...")
+        self.set_controller_calib_status(t("ctrl.calib_center_status_progress"))
         threading.Thread(target=self._controller_calibrate_center_worker, daemon=True).start()
 
     def _controller_calibrate_center_worker(self):
         try:
             self.controller.calibrate_sticks_center()
-            self.after(0, lambda: self._controller_calibrate_done(
-                "Centro calibrado. Teste os sticks -- se estiver bom, clique em "
-                "'Salvar alteracoes permanentemente'."))
+            self.after(0, lambda: self._controller_calibrate_done(t("ctrl.calib_center_done")))
         except DualSenseError as e:
             self.after(0, lambda: self._controller_calibrate_failed(str(e)))
 
@@ -1210,39 +1324,35 @@ class App(tk.Tk):
         self.set_controller_calib_status(msg)
 
     def _controller_calibrate_failed(self, err: str):
-        self.set_controller_calib_status(f"ERRO: {err}")
-        messagebox.showerror("Erro na calibracao", err)
+        self.set_controller_calib_status(t("ctrl.calib_err_prefix", err=err))
+        messagebox.showerror(t("ctrl.calib_err_title"), err)
 
     def on_controller_calibrate_range(self):
         if self.controller is None:
-            messagebox.showinfo("Nao conectado", "Conecte o controle antes de calibrar.")
+            messagebox.showinfo(t("ctrl.not_connected_title"), t("ctrl.not_connected_body"))
             return
         proceed = messagebox.askyesno(
-            "Calibrar alcance do analogico",
-            "Na proxima tela, gire os dois analogicos em circulos completos e bem abertos "
-            "varias vezes (uns 5 a 10 segundos) antes de clicar em Concluir.\n\n"
-            "So fica permanente depois que voce clicar em 'Salvar alteracoes "
-            "permanentemente'.\n\nContinuar?",
+            t("ctrl.calib_range_title"),
+            t("ctrl.calib_range_body"),
         )
         if not proceed:
             return
         try:
             self.controller.calibrate_range_begin()
         except DualSenseError as e:
-            messagebox.showerror("Erro ao iniciar calibracao", str(e))
+            messagebox.showerror(t("ctrl.calib_start_err_title"), str(e))
             return
 
         dlg = tk.Toplevel(self)
-        dlg.title("Calibrando alcance dos analogicos")
+        dlg.title(t("ctrl.calib_range_dlg_title"))
         dlg.configure(bg=BG)
         dlg.transient(self)
         dlg.grab_set()
         tk.Label(
             dlg, bg=BG, fg=FG, font=("Segoe UI", 10), wraplength=360, justify="center",
-            text=("Gire os dois analogicos em circulos completos e bem abertos, "
-                  "varias vezes. Quando terminar, clique em Concluir."),
+            text=t("ctrl.calib_range_dlg_body"),
         ).pack(padx=20, pady=(20, 10))
-        lbl_timer = tk.Label(dlg, text="0s", bg=BG, fg=LOG_INFO, font=("Consolas", 14, "bold"))
+        lbl_timer = tk.Label(dlg, text=t("ctrl.seconds_suffix", n=0), bg=BG, fg=LOG_INFO, font=("Consolas", 14, "bold"))
         lbl_timer.pack(pady=(0, 10))
 
         state = {"elapsed": 0, "ticking": True}
@@ -1251,7 +1361,7 @@ class App(tk.Tk):
             if not state["ticking"] or not dlg.winfo_exists():
                 return
             state["elapsed"] += 1
-            lbl_timer.configure(text=f"{state['elapsed']}s")
+            lbl_timer.configure(text=t("ctrl.seconds_suffix", n=state["elapsed"]))
             dlg.after(1000, tick)
 
         tick()
@@ -1269,32 +1379,27 @@ class App(tk.Tk):
                     self.controller.calibrate_range_end()
                 except DualSenseError:
                     pass
-                self.set_controller_calib_status("Calibracao de alcance cancelada.")
+                self.set_controller_calib_status(t("ctrl.calib_range_cancelled"))
 
-        ttk.Button(btn_row, text="Concluir", command=lambda: finish(True)).pack(side="left", padx=6)
-        ttk.Button(btn_row, text="Cancelar", command=lambda: finish(False)).pack(side="left", padx=6)
+        ttk.Button(btn_row, text=t("ctrl.btn_finish"), command=lambda: finish(True)).pack(side="left", padx=6)
+        ttk.Button(btn_row, text=t("ctrl.btn_cancel"), command=lambda: finish(False)).pack(side="left", padx=6)
 
     def _controller_calibrate_range_finish(self):
         try:
             self.controller.calibrate_range_end()
             self._controller_has_pending_changes = True
             self.btn_controller_flash.configure(state="normal")
-            self.set_controller_calib_status(
-                "Alcance calibrado. Teste os sticks -- se estiver bom, clique em "
-                "'Salvar alteracoes permanentemente'."
-            )
+            self.set_controller_calib_status(t("ctrl.calib_range_done"))
         except DualSenseError as e:
-            self.set_controller_calib_status(f"ERRO: {e}")
-            messagebox.showerror("Erro na calibracao", str(e))
+            self.set_controller_calib_status(t("ctrl.calib_err_prefix", err=e))
+            messagebox.showerror(t("ctrl.calib_err_title"), str(e))
 
     def on_controller_flash(self):
         if self.controller is None:
             return
         proceed = messagebox.askyesno(
-            "Salvar alteracoes permanentemente",
-            "Isto grava a calibracao atual de forma PERMANENTE na memoria do controle "
-            "(vale ate a proxima calibracao, pode ser refeita quantas vezes precisar).\n\n"
-            "Tem certeza?",
+            t("ctrl.flash_confirm_title"),
+            t("ctrl.flash_confirm_body"),
         )
         if not proceed:
             return
@@ -1302,10 +1407,10 @@ class App(tk.Tk):
             self.controller.flash_changes()
             self._controller_has_pending_changes = False
             self.btn_controller_flash.configure(state="disabled")
-            self.set_controller_calib_status("Alteracoes salvas permanentemente.")
-            messagebox.showinfo("Salvo", "Calibracao salva permanentemente no controle.")
+            self.set_controller_calib_status(t("ctrl.flash_saved_status"))
+            messagebox.showinfo(t("ctrl.flash_saved_title"), t("ctrl.flash_saved_body"))
         except DualSenseError as e:
-            messagebox.showerror("Erro ao salvar", str(e))
+            messagebox.showerror(t("ctrl.flash_err_title"), str(e))
 
     def _show_stage(self, name: str):
         for key, (widget, anim, _) in self._stages.items():
@@ -1325,7 +1430,7 @@ class App(tk.Tk):
         self.txt.see("end")
 
     def set_status(self, msg: str):
-        self.lbl_status.configure(text=f"Status: {msg}")
+        self.lbl_status.configure(text=t("hw.status_prefix", msg=msg))
 
     def set_backup_badge(self, ok: bool, text: str):
         if ok:
@@ -1339,7 +1444,7 @@ class App(tk.Tk):
             step["bar"].stop()
             step["bar"].configure(mode="determinate", value=0, maximum=100)
             step["check"].configure(text="  ")
-            step["label"].configure(text=step["base_text"])
+            step["label"].configure(text=t(step["base_key"]))
 
     def _write_step_start(self, key: str, status_text: str):
         step = self.write_steps[key]
@@ -1374,7 +1479,7 @@ class App(tk.Tk):
     def on_detect(self):
         self._show_stage("detecting")
         self.btn_detect.configure(state="disabled")
-        self.set_status("detectando leitor...")
+        self.set_status(t("status.detecting"))
         threading.Thread(target=self._detect_worker, daemon=True).start()
 
     def _detect_worker(self):
@@ -1401,17 +1506,17 @@ class App(tk.Tk):
             time.sleep(remaining)
 
     def _detect_done(self, jedec: bytes):
-        self.set_status("leitor detectado")
-        self.log(f"Leitor CH341A conectado. JEDEC ID do chip na NOR: {jedec.hex(' ').upper()}", "ok")
+        self.set_status(t("status.reader_detected"))
+        self.log(t("hw.log.reader_connected", jedec=jedec.hex(' ').upper()), "ok")
         self.btn_detect.configure(state="normal")
         self.btn_read.configure(state="normal")
         self.btn_restore.configure(state="normal")
 
     def _detect_failed(self, err: str):
         self._show_stage("detect_failed")
-        self.set_status("falha ao detectar leitor")
-        self.log(f"ERRO: {err}", "error")
-        messagebox.showerror("Erro ao detectar leitor", err)
+        self.set_status(t("status.detect_failed"))
+        self.log(t("hw.log.error_prefix", err=err), "error")
+        messagebox.showerror(t("hw.err_detect_title"), err)
         self.btn_detect.configure(state="normal")
 
     # -- Passo 2: ler, comparar, backup, parsear ---------------------------
@@ -1421,8 +1526,8 @@ class App(tk.Tk):
         self.btn_detect.configure(state="disabled")
         self.btn_preview.configure(state="disabled")
         self.btn_write.configure(state="disabled")
-        self.set_backup_badge(False, "lendo NOR...")
-        self.set_status("lendo NOR (1a leitura)...")
+        self.set_backup_badge(False, t("hw.backup_badge_reading"))
+        self.set_status(t("status.reading_1"))
         self.progress.configure(value=0, maximum=EXPECTED_SIZE)
         threading.Thread(target=self._read_worker, daemon=True).start()
 
@@ -1432,10 +1537,10 @@ class App(tk.Tk):
     def _read_worker(self):
         try:
             with CH341SPI() as spi:
-                self.after(0, lambda: self.set_status("lendo NOR (1a leitura)..."))
+                self.after(0, lambda: self.set_status(t("status.reading_1")))
                 dump1 = spi.read_all(EXPECTED_SIZE, progress_cb=self._progress_cb)
 
-                self.after(0, lambda: self.set_status("lendo NOR (2a leitura, para conferir)..."))
+                self.after(0, lambda: self.set_status(t("status.reading_2")))
                 dump2 = spi.read_all(EXPECTED_SIZE, progress_cb=self._progress_cb)
 
             equal, n_diff, first_offsets = compare_dumps(dump1, dump2)
@@ -1464,23 +1569,12 @@ class App(tk.Tk):
         return dump1_path
 
     def _read_mismatch(self, n_diff: int, first_offsets: list[int]):
-        self.set_status("ERRO: as duas leituras nao bateram")
-        self.set_backup_badge(False, "leitura falhou -- sem backup")
+        self.set_status(t("status.read_mismatch"))
+        self.set_backup_badge(False, t("hw.backup_badge_failed"))
         offs = ", ".join(f"0x{o:X}" for o in first_offsets)
-        self.log(
-            f"As duas leituras da NOR deram resultados DIFERENTES em {n_diff} "
-            f"byte(s). Primeiros offsets divergentes: {offs}", "error"
-        )
-        self.log(
-            "NAO prossiga com gravacao. Verifique o contato do soquete/clipe "
-            "na NOR e leia novamente.", "warn"
-        )
-        messagebox.showwarning(
-            "Leituras inconsistentes",
-            "As duas leituras da NOR deram resultados diferentes.\n"
-            "Verifique o contato do leitor e tente novamente. Nao prossiga "
-            "com gravacao enquanto isso nao for resolvido."
-        )
+        self.log(t("hw.log.read_mismatch", n=n_diff, offs=offs), "error")
+        self.log(t("hw.log.read_mismatch_warn"), "warn")
+        messagebox.showwarning(t("hw.read_mismatch_title"), t("hw.read_mismatch_body"))
         self.btn_detect.configure(state="normal")
         self.btn_read.configure(state="normal")
 
@@ -1490,22 +1584,23 @@ class App(tk.Tk):
         self.last_dump = dump
         self.last_backup_path = backup_path
         self.last_patch = None
-        self.set_status("leitura concluida com sucesso")
-        self.set_backup_badge(True, f"Backup salvo em: {backup_path.parent.name}")
+        self.set_status(t("status.read_success"))
+        self.set_backup_badge(True, t("hw.backup_badge_saved", name=backup_path.parent.name))
         self.log("=" * 60, "muted")
-        self.log("LEITURA CONCLUIDA -- as duas leituras bateram byte a byte.", "ok")
-        self.log(f"DUMP1.bin e DUMP2.bin salvos em: {backup_path.parent}", "muted")
+        self.log(t("hw.log.read_done"), "ok")
+        self.log(t("hw.log.dumps_saved", path=backup_path.parent), "muted")
         self.log("")
-        self.log(f"Tamanho do arquivo: {info.size} bytes" + (" (OK)" if info.size_ok else " *** TAMANHO INESPERADO ***"))
-        self.log(f"SHA-256: {info.sha256}")
-        self.log(f"Chip HDMI detectado: {info.chip_name} (byte bruto 0x{info.chip_raw:02X})")
-        self.log(f"Endereco MAC: {info.mac}")
-        self.log(f"Identificador bruto (serie/area adjacente): {info.raw_id_block}")
-        self.log(f"Codigo CFI encontrado: {info.cfi_code}")
-        self.log(f"Revisao do modulo Wi-Fi/Bluetooth (EXPERIMENTAL, nao confirmado): {info.wifi_rev_hint}")
+        size_suffix = t("common.size_ok_suffix") if info.size_ok else t("common.size_bad_suffix")
+        self.log(t("hw.log.size", size=info.size, suffix=size_suffix))
+        self.log(t("hw.log.sha256", sha=info.sha256))
+        self.log(t("hw.log.chip", name=info.chip_name, raw=f"{info.chip_raw:02X}"))
+        self.log(t("hw.log.mac", mac=info.mac))
+        self.log(t("hw.log.raw_id", val=info.raw_id_block))
+        self.log(t("hw.log.cfi", val=info.cfi_code))
+        self.log(t("hw.log.wifi_rev", val=info.wifi_rev_hint))
         if info.warnings:
             self.log("")
-            self.log("AVISOS:", "warn")
+            self.log(t("common.warnings_label"), "warn")
             for w in info.warnings:
                 self.log(f"  - {w}", "warn")
         self.log("=" * 60, "muted")
@@ -1515,10 +1610,10 @@ class App(tk.Tk):
         self.btn_write.configure(state="disabled")
 
     def _read_failed(self, err: str):
-        self.set_status("falha na leitura")
-        self.set_backup_badge(False, "leitura falhou -- sem backup")
-        self.log(f"ERRO: {err}", "error")
-        messagebox.showerror("Erro na leitura", err)
+        self.set_status(t("status.read_failed"))
+        self.set_backup_badge(False, t("hw.backup_badge_failed"))
+        self.log(t("hw.log.error_prefix", err=err), "error")
+        messagebox.showerror(t("hw.err_read_title"), err)
         self.btn_detect.configure(state="normal")
         self.btn_read.configure(state="normal")
 
@@ -1526,7 +1621,7 @@ class App(tk.Tk):
     def on_preview(self):
         self._show_stage("preview")
         if self.last_dump is None:
-            messagebox.showinfo("Leia a NOR primeiro", "Faca a leitura da NOR (passo 2) antes de pre-visualizar o patch.")
+            messagebox.showinfo(t("hw.no_nor_title"), t("hw.no_nor_body"))
             return
         target = self.target_var.get()
         result = apply_patch(self.last_dump, target)
@@ -1540,28 +1635,20 @@ class App(tk.Tk):
             converted_path.write_bytes(result.data)
 
         self.log("=" * 60, "muted")
-        self.log(f"PRE-VISUALIZACAO DO PATCH -- alvo: {TARGET_LABEL[target]}", "patch")
+        self.log(t("hw.log.preview_title", target=TARGET_LABEL[target]), "patch")
         for ch in result.changes:
             self.log(
-                f"  offset 0x{ch.offset:06X}: {ch.old.hex(' ').upper()} -> "
-                f"{ch.new.hex(' ').upper()}   [{ch.description}]", "patch"
+                t("hw.log.preview_change", offset=f"{ch.offset:06X}",
+                  old=ch.old.hex(' ').upper(), new=ch.new.hex(' ').upper(), desc=ch.description),
+                "patch"
             )
         self.log("")
         if result.checksum_left_stale:
-            self.log(
-                "*** ATENCAO: o checksum em 0x1C41FE-0x1C41FF NAO foi resolvido "
-                "pra essa combinacao de chip + REV Wi-Fi (ainda nao vista). "
-                "Isso pode fazer o console nao exibir video mesmo ligando. So "
-                "grave em placa de bancada/teste. ***", "warn"
-            )
+            self.log(t("hw.log.checksum_stale"), "warn")
         else:
-            self.log(
-                "Checksum em 0x1C41FE-0x1C41FF resolvido com valor confirmado "
-                "(ver NOTES.md) -- combinacao de chip + REV Wi-Fi ja vista em "
-                "amostras reais.", "ok"
-            )
+            self.log(t("hw.log.checksum_resolved"), "ok")
         if converted_path is not None:
-            self.log(f"NOR convertida salva em: {converted_path}", "muted")
+            self.log(t("hw.log.converted_saved", path=converted_path), "muted")
         self.log("=" * 60, "muted")
         self.btn_write.configure(state="normal")
 
@@ -1569,39 +1656,30 @@ class App(tk.Tk):
     def on_write(self):
         self._show_stage("writing")
         if self.last_patch is None or self.last_dump is None:
-            messagebox.showinfo("Pre-visualize primeiro", "Clique em 'Pre-visualizar alteracoes' antes de gravar.")
+            messagebox.showinfo(t("hw.preview_first_title"), t("hw.preview_first_body"))
             return
 
         if self.last_patch.checksum_left_stale:
-            checksum_msg = (
-                "O checksum em 0x1C41FE-FF NAO foi resolvido pra essa "
-                "combinacao de chip + REV Wi-Fi -- ainda nao sabemos se isso "
-                "impede o video de funcionar.\n\nUse isto SOMENTE em placa de "
-                "bancada/teste, nunca em placa de cliente."
-            )
+            checksum_msg = t("hw.checksum_stale_confirm")
         else:
-            checksum_msg = (
-                "O checksum em 0x1C41FE-FF foi resolvido com um valor "
-                "confirmado em amostras reais (ver NOTES.md)."
-            )
+            checksum_msg = t("hw.checksum_resolved_confirm")
         proceed = messagebox.askyesno(
-            "Confirmar gravacao",
-            "Isto vai APAGAR e REGRAVAR a NOR inteira com o patch mostrado no "
-            f"log.\n\n{checksum_msg}\n\nTem certeza que quer continuar?",
+            t("hw.confirm_write_title"),
+            t("hw.confirm_write_body", checksum_msg=checksum_msg),
             icon="warning",
         )
         if not proceed:
             self._show_stage("write_cancelled")
-            self.log("Gravacao cancelada pelo usuario (respondeu Nao na confirmacao).", "warn")
+            self.log(t("hw.log.write_cancelled_user"), "warn")
             return
 
         typed = simpledialog.askstring(
-            "Confirmacao final",
-            f"Digite {CONFIRM_PHRASE} para confirmar a gravacao:"
+            t("hw.confirm_final_title"),
+            t("hw.confirm_final_write_body", phrase=CONFIRM_PHRASE)
         )
         if typed != CONFIRM_PHRASE:
             self._show_stage("write_cancelled")
-            self.log("Gravacao cancelada (confirmacao nao digitada corretamente).", "warn")
+            self.log(t("hw.log.write_cancelled_phrase"), "warn")
             return
 
         self._show_stage("writing_active")
@@ -1611,14 +1689,14 @@ class App(tk.Tk):
         self.btn_write.configure(state="disabled")
         self.btn_restore.configure(state="disabled")
         self._reset_write_steps()
-        self.set_status("gravando NOR...")
+        self.set_status(t("status.writing"))
         threading.Thread(target=self._write_worker, daemon=True).start()
 
     def _write_worker(self):
         self._flash_worker(
             self.last_patch.data,
             pre_check_against=self.last_dump,
-            pre_check_label="Conferindo se a NOR ainda e a mesma do backup...",
+            pre_check_label=t("step.verify_before.status_patch"),
             context="patch",
         )
 
@@ -1641,12 +1719,12 @@ class App(tk.Tk):
                 self.after(0, lambda: self._write_step_done("verify_before"))
 
                 self.after(0, lambda: self._write_step_start(
-                    "erase", "Apagando NOR (pode levar ate 1-2 minutos)..."))
+                    "erase", t("step.erase.status")))
                 spi.erase_chip()
                 self.after(0, lambda: self._write_step_done("erase"))
 
                 self.after(0, lambda: self._write_step_start(
-                    "write", "Gravando NOR..."))
+                    "write", t("step.write.status")))
                 spi.write_all(
                     data,
                     progress_cb=lambda d, t: self._write_step_progress_cb("write", d, t),
@@ -1654,7 +1732,7 @@ class App(tk.Tk):
                 self.after(0, lambda: self._write_step_done("write"))
 
                 self.after(0, lambda: self._write_step_start(
-                    "verify_after", "Lendo a NOR gravada e verificando se bate com o esperado..."))
+                    "verify_after", t("step.verify_after.status")))
                 verify = spi.read_all(
                     EXPECTED_SIZE,
                     progress_cb=lambda d, t: self._write_step_progress_cb("verify_after", d, t),
@@ -1668,58 +1746,43 @@ class App(tk.Tk):
             self.after(0, lambda: self._write_failed(err_msg))
 
     def _write_aborted_changed(self):
-        self.set_status("gravacao cancelada -- NOR mudou desde a leitura")
-        self.log(
-            "ABORTADO: a NOR conectada agora e diferente da que foi lida no "
-            "passo 2. Se voce trocou o chip no soquete, refaca a leitura "
-            "(passo 2) antes de gravar.", "error"
-        )
-        messagebox.showerror(
-            "Gravacao cancelada",
-            "A NOR conectada mudou desde a ultima leitura. Refaca o passo 2 "
-            "antes de gravar."
-        )
+        self.set_status(t("status.write_aborted_changed"))
+        self.log(t("hw.log.aborted_changed"), "error")
+        messagebox.showerror(t("hw.aborted_title"), t("hw.aborted_body"))
         self._reset_buttons_after_write()
 
     def _write_done(self, equal: bool, n_diff: int, first_offsets: list[int], context: str = "patch"):
         is_restore = context == "restore"
-        verb = "RESTAURACAO" if is_restore else "GRAVACAO"
-        reference = "o backup selecionado" if is_restore else "o patch pretendido"
+        verb = t("common.verb_restore") if is_restore else t("common.verb_write")
+        reference = t("hw.reference_backup") if is_restore else t("hw.reference_patch")
         if equal:
             self._show_stage("write_success")
-            self.set_status(f"{verb} CONCLUIDA E VERIFICADA")
+            self.set_status(t("status.done_verified", verb=verb))
             self.log("=" * 60, "muted")
-            self.log(f"{verb} CONCLUIDA -- a NOR gravada bate 100% com {reference}.", "ok")
-            self.log("Teste a placa agora.", "ok")
+            self.log(t("hw.log.op_done", verb=verb, reference=reference), "ok")
+            self.log(t("hw.log.test_board_now"), "ok")
             if self.last_backup_path is not None:
-                self.log(f"Backup desta sessao, se precisar: {self.last_backup_path}", "muted")
+                self.log(t("hw.log.session_backup", path=self.last_backup_path), "muted")
             self.log("=" * 60, "muted")
-            messagebox.showinfo(f"{verb.capitalize()} concluida",
-                                 f"{verb.capitalize()} concluida e verificada com sucesso.\nTeste a placa agora.")
+            messagebox.showinfo(t("hw.op_done_title", verb=verb.capitalize()),
+                                 t("hw.op_done_body", verb=verb.capitalize()))
         else:
-            self.set_status(f"ERRO: {verb.lower()} nao bateu na verificacao")
+            self.set_status(t("status.verify_mismatch", verb=verb.lower()))
             offs = ", ".join(f"0x{o:X}" for o in first_offsets)
-            self.log(
-                f"ERRO: a NOR gravada NAO bate com {reference} em "
-                f"{n_diff} byte(s). Primeiros offsets: {offs}", "error"
-            )
+            self.log(t("hw.log.op_mismatch", reference=reference, n=n_diff, offs=offs), "error")
             if self.last_backup_path is not None:
-                self.log(f"RESTAURE O BACKUP imediatamente: {self.last_backup_path}", "error")
-            messagebox.showerror(
-                "Falha na verificacao",
-                "A operacao nao bateu na verificacao. Restaure um backup valido "
-                "imediatamente (botao \"Restaurar backup de arquivo...\")."
-            )
+                self.log(t("hw.log.restore_now", path=self.last_backup_path), "error")
+            messagebox.showerror(t("hw.verify_fail_title"), t("hw.verify_fail_body"))
         self._reset_buttons_after_write()
 
     def _write_failed(self, err: str):
         for step in self.write_steps.values():
             step["bar"].stop()
-        self.set_status("falha na gravacao")
-        self.log(f"ERRO DURANTE A GRAVACAO: {err}", "error")
+        self.set_status(t("status.write_failed"))
+        self.log(t("hw.log.write_error", err=err), "error")
         if self.last_backup_path is not None:
-            self.log(f"Se a NOR ficou incompleta, restaure o backup: {self.last_backup_path}", "error")
-        messagebox.showerror("Erro na gravacao", f"{err}\n\nRestaure um backup valido se necessario.")
+            self.log(t("hw.log.restore_if_incomplete", path=self.last_backup_path), "error")
+        messagebox.showerror(t("hw.write_err_title"), t("hw.write_err_body", err=err))
         self._reset_buttons_after_write()
 
     def _reset_buttons_after_write(self):
@@ -1733,9 +1796,9 @@ class App(tk.Tk):
     def on_restore_backup(self):
         BACKUP_DIR.mkdir(parents=True, exist_ok=True)
         path_str = filedialog.askopenfilename(
-            title="Selecione o arquivo de backup (.bin) para restaurar",
+            title=t("hw.restore_select_title"),
             initialdir=str(BACKUP_DIR),
-            filetypes=[("Backup NOR", "*.bin"), ("Todos os arquivos", "*.*")],
+            filetypes=[(t("hw.restore_backup_filter"), "*.bin"), (t("common.file_all_filter"), "*.*")],
         )
         if not path_str:
             return
@@ -1743,34 +1806,29 @@ class App(tk.Tk):
         data = path.read_bytes()
         if len(data) != EXPECTED_SIZE:
             messagebox.showerror(
-                "Arquivo invalido",
-                f"O arquivo selecionado tem {len(data)} bytes, mas o esperado "
-                f"e {EXPECTED_SIZE} bytes (2 MB). Escolha outro arquivo."
+                t("hw.restore_invalid_title"),
+                t("hw.restore_invalid_body", size=len(data), expected=EXPECTED_SIZE)
             )
             return
 
         self._show_stage("writing")
         proceed = messagebox.askyesno(
-            "Confirmar restauracao",
-            f"Isto vai APAGAR e REGRAVAR a NOR inteira com o conteudo de:\n\n"
-            f"{path}\n\n"
-            "Use isto SOMENTE em placa de bancada/teste, nunca em placa de "
-            "cliente, a menos que tenha certeza de que esse backup pertence "
-            "exatamente a essa placa.\n\nTem certeza que quer continuar?",
+            t("hw.confirm_restore_title"),
+            t("hw.confirm_restore_body", path=path),
             icon="warning",
         )
         if not proceed:
             self._show_stage("write_cancelled")
-            self.log("Restauracao cancelada pelo usuario (respondeu Nao na confirmacao).", "warn")
+            self.log(t("hw.log.restore_cancelled_user"), "warn")
             return
 
         typed = simpledialog.askstring(
-            "Confirmacao final",
-            f"Digite {CONFIRM_PHRASE} para confirmar a restauracao:"
+            t("hw.confirm_final_title"),
+            t("hw.confirm_final_restore_body", phrase=CONFIRM_PHRASE)
         )
         if typed != CONFIRM_PHRASE:
             self._show_stage("write_cancelled")
-            self.log("Restauracao cancelada (confirmacao nao digitada corretamente).", "warn")
+            self.log(t("hw.log.restore_cancelled_phrase"), "warn")
             return
 
         self._show_stage("writing_active")
@@ -1780,16 +1838,16 @@ class App(tk.Tk):
         self.btn_write.configure(state="disabled")
         self.btn_restore.configure(state="disabled")
         self._reset_write_steps()
-        self.set_status("restaurando backup...")
+        self.set_status(t("status.restoring"))
         self.log("=" * 60, "muted")
-        self.log(f"RESTAURANDO BACKUP a partir de: {path}", "info")
+        self.log(t("hw.log.restoring_from", path=path), "info")
         threading.Thread(target=self._restore_worker, args=(data,), daemon=True).start()
 
     def _restore_worker(self, data: bytes):
         self._flash_worker(
             data,
             pre_check_against=None,
-            pre_check_label="Preparando restauracao do backup selecionado...",
+            pre_check_label=t("step.verify_before.status_restore"),
             context="restore",
         )
 

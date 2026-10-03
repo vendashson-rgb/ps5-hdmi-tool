@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from i18n import t
 from nor_parser import (
     OFFSET_CHIP_SELECT,
     OFFSET_WIFI_REV_HINT,
@@ -89,7 +90,7 @@ def apply_patch(original: bytes, target: str) -> PatchResult:
     buf[OFFSET_CHIP_SELECT] = new_val
     changes.append(PatchChange(
         OFFSET_CHIP_SELECT, old, bytes([new_val]),
-        f"Seletor de CI HDMI -> {TARGET_LABEL[target]}"
+        t("backend.patch.chip_selector", target=TARGET_LABEL[target])
     ))
 
     # 2. Zerar bloco de 20 bytes
@@ -98,7 +99,7 @@ def apply_patch(original: bytes, target: str) -> PatchResult:
         buf[OFFSET_ZERO_BLOCK_1 + i] = 0xFF
     changes.append(PatchChange(
         OFFSET_ZERO_BLOCK_1, old, b"\xFF" * ZERO_BLOCK_1_LEN,
-        "Zerar bloco de pareamento (20 bytes)"
+        t("backend.patch.zero_block")
     ))
 
     # 3. Zerar byte isolado
@@ -106,7 +107,7 @@ def apply_patch(original: bytes, target: str) -> PatchResult:
     buf[OFFSET_ZERO_BYTE] = 0xFF
     changes.append(PatchChange(
         OFFSET_ZERO_BYTE, old, b"\xFF",
-        "Zerar flag de pareamento (1 byte)"
+        t("backend.patch.zero_flag")
     ))
 
     # 4. Incrementar contador de 2 bytes (big-endian), com carry
@@ -118,7 +119,7 @@ def apply_patch(original: bytes, target: str) -> PatchResult:
     buf[OFFSET_COUNTER + 1] = new_counter[1]
     changes.append(PatchChange(
         OFFSET_COUNTER, old_counter, new_counter,
-        "Incrementar contador de gravacao (+1)"
+        t("backend.patch.counter")
     ))
 
     # 5. Checksum: consulta a tabela fixa (chip_destino, REV Wi-Fi atual da placa).
@@ -133,15 +134,14 @@ def apply_patch(original: bytes, target: str) -> PatchResult:
         buf[OFFSET_CHECKSUM_UNKNOWN + 1] = new_checksum[1]
         changes.append(PatchChange(
             OFFSET_CHECKSUM_UNKNOWN, old_checksum, new_checksum,
-            f"Checksum -> valor conhecido pra {TARGET_LABEL[target]} + "
-            f"REV Wi-Fi 0x{wifi_rev_byte:02X} (tabela confirmada, ver NOTES.md)"
+            t("backend.patch.checksum_known", target=TARGET_LABEL[target],
+              wifi_rev=f"{wifi_rev_byte:02X}")
         ))
         checksum_left_stale = False
     else:
         changes.append(PatchChange(
             OFFSET_CHECKSUM_UNKNOWN, old_checksum, old_checksum,
-            f"Checksum NAO resolvido pra REV Wi-Fi 0x{wifi_rev_byte:02X} "
-            "(combinacao ainda nao vista) -- mantido valor antigo, RISCO"
+            t("backend.patch.checksum_unknown", wifi_rev=f"{wifi_rev_byte:02X}")
         ))
         checksum_left_stale = True
 

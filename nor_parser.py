@@ -15,6 +15,8 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass, field
 
+from i18n import t
+
 EXPECTED_SIZE = 0x200000  # 2 MB -- W25Q16JV e equivalentes
 
 OFFSET_CHIP_SELECT = 0x1C4062
@@ -48,8 +50,8 @@ OFFSET_WRITE_COUNTER = 0x1C49BE  # 2 bytes -- incrementa em +1 a cada conversao
 # para "1.4" por pedido do usuario (ele vai confirmar fisicamente em breve).
 # Exibir sempre marcado como nao confirmado.
 OFFSET_WIFI_REV_HINT = 0x1C4068
-WIFI_REV_HINT_MAP = {
-    0x11: "1.4 (ambiguo com 1.1 -- confirmando)",
+_WIFI_REV_HINT_RAW = {
+    0x11: "backend.parser.wifi_rev_ambiguous",
     0x12: "1.3",
     0x21: "1.5",
 }
@@ -83,7 +85,7 @@ def detect_chip(data: bytes) -> tuple[int, str]:
         return raw, "Realtek RTD2175P"
     if raw == CHIP_NUVOTON_PANASONIC:
         return raw, "Nuvoton/Panasonic MN864739"
-    return raw, f"Desconhecido (byte 0x{raw:02X} nao reconhecido -- NAO prosseguir sem confirmar manualmente)"
+    return raw, t("backend.parser.chip_unknown", raw=f"{raw:02X}")
 
 
 def format_mac(data: bytes) -> str:
@@ -134,7 +136,12 @@ def extract_cfi_code(data: bytes) -> str | None:
 def extract_wifi_rev_hint(data: bytes) -> str | None:
     """EXPERIMENTAL: ve NOTES.md. Nao confirmado -- so para demonstracao."""
     raw = data[OFFSET_WIFI_REV_HINT]
-    return WIFI_REV_HINT_MAP.get(raw, f"desconhecido (byte 0x{raw:02X})")
+    mapped = _WIFI_REV_HINT_RAW.get(raw)
+    if mapped is None:
+        return t("backend.parser.wifi_rev_unknown", raw=f"{raw:02X}")
+    if mapped.startswith("backend."):
+        return t(mapped)
+    return mapped
 
 
 def parse_nor(data: bytes) -> NorInfo:
@@ -143,31 +150,22 @@ def parse_nor(data: bytes) -> NorInfo:
     size = len(data)
     size_ok = size == EXPECTED_SIZE
     if not size_ok:
-        warnings.append(
-            f"Tamanho do arquivo ({size} bytes) diferente do esperado "
-            f"({EXPECTED_SIZE} bytes / 2 MB). NAO prossiga com gravacao."
-        )
+        warnings.append(t("backend.parser.size_warning", size=size, expected=EXPECTED_SIZE))
 
     sha256 = hashlib.sha256(data).hexdigest()
 
     chip_raw, chip_name = detect_chip(data) if size >= OFFSET_CHIP_SELECT + 1 else (
-        -1, "Nao foi possivel ler (arquivo truncado)"
+        -1, t("backend.parser.truncated")
     )
     if chip_raw not in (CHIP_REALTEK, CHIP_NUVOTON_PANASONIC):
-        warnings.append(
-            "Byte do seletor de CI HDMI (offset 0x1C4062) nao bate com nenhum "
-            "valor conhecido. Pode ser uma revisao de placa ainda nao mapeada."
-        )
+        warnings.append(t("backend.parser.chip_byte_warning"))
 
     mac = format_mac(data) if size >= OFFSET_MAC + MAC_LEN else None
     raw_id = extract_id_block(data) if size >= OFFSET_ID_BLOCK + ID_BLOCK_MAX_LEN else None
     cfi = extract_cfi_code(data) if size >= OFFSET_ID_BLOCK + 128 else None
     wifi_rev_hint = extract_wifi_rev_hint(data) if size >= OFFSET_WIFI_REV_HINT + 1 else None
     if wifi_rev_hint is not None:
-        warnings.append(
-            "Revisao do Wi-Fi (offset 0x1C4068) e EXPERIMENTAL, ainda nao "
-            "100% confirmada -- ver NOTES.md."
-        )
+        warnings.append(t("backend.parser.wifi_rev_warning"))
 
     return NorInfo(
         size=size,

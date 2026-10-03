@@ -27,6 +27,8 @@ from typing import Callable
 import serial
 import serial.tools.list_ports
 
+from i18n import t
+
 DEFAULT_BAUDRATE = 115200
 COMMON_BAUDRATES = [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600]
 
@@ -54,7 +56,7 @@ class UartReader:
         try:
             self._ser = serial.Serial(self.port, self.baudrate, timeout=0.2)
         except serial.SerialException as e:
-            raise UartError(f"Nao foi possivel abrir a porta {self.port}: {e}") from e
+            raise UartError(t("backend.uart.open_fail", port=self.port, detail=e)) from e
 
     def start(self, on_line: Callable[[str], None], on_error: Callable[[str], None] | None = None):
         """Inicia a leitura em background.
