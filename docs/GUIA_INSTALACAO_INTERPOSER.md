@@ -52,6 +52,49 @@ indicador de pino 1 do footprint original na placa-mãe e com o pino 1 do
 MN864739. A seta "MN864739 --->" serigrafada na face de cima indica o
 sentido de montagem do chip novo.
 
+### Regulador de 1,8V integrado (TI TLV71318PDBVR) — por que isso importa
+
+O MN864739 precisa de **duas tensões** pra funcionar: 0,9V e 1,8V. O
+RTD2175P que ele substitui também precisa de duas tensões — 0,9V e **3,3V**
+— e essa trilha de 3,3V já existe na placa, alimentando o footprint
+original. O Interposer DatZero vem com o regulador **U1 (TI
+TLV71318PDBVR)** já soldado de fábrica, que aproveita esse 3,3V já existente
+e abaixa localmente para os 1,8V que o Nuvoton precisa.
+
+Isso significa que **o interposer não precisa puxar 1,8V de nenhum outro
+ponto da placa-mãe**. Essa decisão de projeto existe por um motivo
+concreto: o CI HDMI é historicamente uma das peças com maior índice de
+defeito/queima no setor de vídeo do PS5. Se a alimentação de 1,8V fosse
+puxada de outro ponto da placa — por exemplo, direto do PMIC da APU
+(CXD) — uma eventual sobrecarga no setor de vídeo teria caminho livre pra
+se propagar e queimar não só o CI HDMI, mas também o PMIC e, na pior
+hipótese, a própria APU junto. Com o regulador dedicado e isolado no
+próprio interposer, esse caminho de falha fica contido ali, protegendo o
+resto da placa.
+
+Além disso, o pino **EN** (habilita saída) do TLV71318PDBVR está ligado à
+própria trilha de **0,9V**: o regulador só libera a saída de 1,8V quando a
+tensão de 0,9V já está presente, garantindo a sequência de energização
+correta do chip sem nenhum componente externo adicional. Isso bate
+exatamente com o [datasheet oficial da TI para a série
+TLV713](https://www.ti.com/lit/gpn/TLV713): o pino EN liga o regulador ao
+ultrapassar **0,9V (mínimo)** e desliga abaixo de **0,4V** — ou seja, a
+trilha de 0,9V do próprio Nuvoton é, por especificação, tensão suficiente
+pra ligar o regulador de 1,8V.
+
+| Face de cima com o regulador populado |
+|---|
+| <img src="assets/interposer/topo-mn864739.png" width="220"><br>U1 = TI TLV71318PDBVR (ponto rosa = pino 1) |
+
+**Ficha técnica do regulador** ([TLV71318PDBVR](https://www.ti.com/lit/gpn/TLV713), encapsulamento SOT-23-5):
+
+| Parâmetro | Valor |
+|---|---|
+| Tensão de saída | 1,8V fixo |
+| Faixa de tensão de entrada | 1,4V – 5,5V |
+| Pino EN — liga (mínimo) | 0,9V |
+| Pino EN — desliga (máximo) | 0,4V |
+
 ---
 
 ## Ferramentas e insumos necessários
