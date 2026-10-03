@@ -5,6 +5,15 @@
 Desenvolvido por **DatZero Foundation** — [datzerogames.com.br](https://datzerogames.com.br/)
 Técnico criador: **Jefferson Honorio**
 
+## ⬇️ Baixar
+
+**[Baixar o instalador (.exe) — última versão](https://github.com/vendashson-rgb/ps5-hdmi-tool/releases/latest)**
+
+Baixe o `PS5_HDMI_Tool_Setup.exe` da página de releases acima e rode — ele
+instala o programa e o driver do leitor CH341A automaticamente (pede
+permissão de administrador pra isso). Não precisa instalar Python nem nada
+além dele.
+
 Programa para ler/gravar a NOR de placas PS5 Slim via leitor CH341A, conferir
 a leitura, salvar backup automático, mostrar informações da placa (chip HDMI
 instalado, MAC, dados de identificação) e aplicar o patch de conversão de

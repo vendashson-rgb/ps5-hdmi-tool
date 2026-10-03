@@ -5,6 +5,15 @@
 Developed by **DatZero Foundation** — [datzerogames.com.br](https://datzerogames.com.br/)
 Lead technician: **Jefferson Honorio**
 
+## ⬇️ Download
+
+**[Download the installer (.exe) — latest release](https://github.com/vendashson-rgb/ps5-hdmi-tool/releases/latest)**
+
+Download `PS5_HDMI_Tool_Setup.exe` from the releases page above and run it
+— it installs the program and the CH341A reader driver automatically (asks
+for administrator permission to do so). No need to install Python or
+anything else.
+
 A tool to read/write the NOR flash of PS5 Slim boards via a CH341A reader,
 verify the read, save automatic backups, show board information (installed
 HDMI chip, MAC, identification data) and apply the HDMI chip conversion
