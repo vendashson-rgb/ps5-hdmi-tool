@@ -145,6 +145,31 @@ distintos (versões/builds de firmware diferentes por lote de fábrica), e
 reforça a conclusão de que isso não tem relação com o chip HDMI: a conversão
 real do EDM-044 (mesmo console) não tocou nem um byte dessa partição.
 
+## Checagem cruzada 2026-10-04: tabela de blog (bank/block da sflash)
+
+Usuário trouxe uma tabela (print de blog, sem URL) com offsets em termos de
+"Bank/Block" da sflash do PS5. Testamos os offsets relevantes contra nossas
+amostras reais -- resultado principal foi **confirmar** (não corrigir) o que
+já tínhamos:
+
+- `0x1C7230` ("hw_model" na tabela, 32 bytes) — mesmo campo que já
+  implementamos como SKU (13 bytes). Confirma que o padding depois do texto
+  é `0x00`, não `0xFF` — não muda nada na nossa extração (ela já corta no
+  tamanho certo antes de chegar no padding).
+- `0x1C8068` (4 bytes) — **mesmo valor** do nosso campo "firmware atual" em
+  `0x1C8C30` (testado em 3 amostras, bateu 3/3). É um dado duplicado na NOR,
+  não um campo novo.
+- Região "backup" espelhada em `+0x3000` (os mesmos campos de firmware
+  repetidos em outro bank) — bate com a constante `BACKUP_OFFSET = 0x3000`
+  já vista no ps5-wee-tools.
+
+**Divergência encontrada entre as duas fontes externas** (ps5-wee-tools vs
+essa tabela), sem impacto pra gente porque não expomos nenhum dos dois campos
+na interface: ps5-wee-tools chama `0x1C8C10` de "Minimum FW" e `0x1C8C20` de
+"Factory FW"; a tabela do blog inverte os dois. Registrado aqui só pra não
+confiar cegamente em nenhuma das duas fontes se um dia implementarmos esses
+campos.
+
 ## Confirmado 2026-10-04: não existe bloco de config I2C fora do que já patcheamos
 
 Dúvida levantada: o CI HDMI (Realtek ou Nuvoton) se comunica com a Southbridge
