@@ -9,7 +9,9 @@ histórico entre sessões. Tamanho de arquivo esperado: 2097152 bytes (2 MB).
 |---|---|---|
 | 0x1C4062 | Seletor de CI HDMI | `0x01` = Realtek RTD2175P, `0xFF` = Nuvoton/Panasonic MN864739. Validado em 5 placas originais (rev 1.1, 1.3, 1.4, 1.5) + 1 conversão real. |
 | 0x1C4020 (6 bytes) | Endereço MAC | Confirmado comparando placas — valor único por console. |
-| 0x1C7200 (~33 bytes) | Bloco de identificação | Texto ASCII cru (contém o que parece ser o número de série no final da string, ex. `MZD1045691`, `NA410261047`). Ainda não isolamos exatamente qual parte é "o" número de série oficial — mostramos o campo bruto inteiro. |
+| 0x1C7200 (~33 bytes) | Bloco de identificação | Texto ASCII cru (contém o que parece ser o número de série no final da string, ex. `MZD1045691`, `NA410261047`). Ver quebra em dois subcampos confirmados logo abaixo. |
+| 0x1C7200 (16 bytes) | Identificador da placa-mãe | Ex.: `BD062B1616300100`. Offset conferido contra o código-fonte do [PS5 NOR Modifier](https://github.com/TheCod3rYouTube/PS5NorModifier) (TheCod3r — projeto pro PS5 original, não o Slim) e validado batendo exatamente nas nossas 5 amostras de PS5 Slim. |
+| 0x1C7210 (17 bytes) | Número de série do console | Ex.: `E44C01MZD10456917`. Mesma fonte/validação do campo acima — é exatamente o byte seguinte, sem gap. Ainda não confirmado fisicamente contra a etiqueta de um console real (é uma forte correspondência de offset/formato, não 100% confirmado visualmente). |
 | ~0x1C7230 | Código "CFI-XXXX" | Texto ASCII real encontrado no dump (`CFI-2014 B01X`, `CFI-2114 B01X`, `CFI-1214A 01X`). **Não confirmado** o que exatamente representa — não bate 1:1 com os números EDM-xxx usados nos nomes de arquivo. Mostrar como informação extra, nunca como "revisão da placa" até confirmar. |
 
 ## Campos da "receita de conversão" (Realtek ⇄ Nuvoton/Panasonic)
@@ -61,6 +63,38 @@ acima (0x11, 0x12 ou 0x21), já sabemos o valor exato a gravar em 0x1C41FE-FF
 sem precisar do algoritmo — é só consultar a tabela. Pra um console com um
 byte de REV Wi-Fi novo (não listado), ainda não temos como prever o valor —
 precisa de uma amostra real original com esse byte pra descobrir.
+
+## Estudo 2026-10-04: PS5 NOR Modifier (TheCod3r/PS5NorModifier)
+
+Repositório sugerido pelo usuário: https://github.com/TheCod3rYouTube/PS5NorModifier
+— C# WinForms, projeto do mesmo autor do uartcodes.com. **O próprio README
+diz "PS5 Slim not currently supported"** — é feito pro PS5 original (Phat),
+não pro Slim. Por isso os offsets de lá não são assumidos como válidos aqui
+sem confirmar contra nossas próprias amostras.
+
+O que testamos e **confirmou bater** nos nossos dumps de PS5 Slim (mesmo
+offset, campo limpo em todas as 5 amostras):
+- `0x1C4020` (MAC) — já era o nosso próprio offset, confirma consistência.
+- `0x1C7200` (16 bytes) e `0x1C7210` (17 bytes) — os dois subcampos novos
+  da tabela acima (identificador da placa-mãe + número de série do console).
+
+O que **não bateu** como esperado: o campo "variante/região da placa" deles
+(`0x1c7226`, 19 bytes, sufixos tipo "01A"=EUA/Canadá, "02A"=Oceania etc.) —
+nas nossas amostras de Slim esse offset cai bem em cima do início do nosso
+já conhecido código `CFI-XXXX`, sem nenhum sufixo de região de 3 caracteres
+antes. Ou o layout diverge um pouco aqui entre PS5 e PS5 Slim, ou o campo de
+região fica em outro offset no Slim — não implementado, não confirmado.
+
+Achado que vale testar depois (não implementado ainda): o programa deles
+consulta códigos de erro **ativamente** via UART, enviando comandos de texto
+tipo `errlog 0`, `errlog 1` ... `errlog 10` e `errlog clear` (com um checksum
+simples — soma dos valores ASCII do comando & 0xFF, formato `comando:XX`),
+em vez de só escutar o log cru como a nossa aba "Leitor UART" faz hoje. Se o
+firmware de debug do PS5 Slim aceitar os mesmos comandos (provável, mesma
+família de SoC), dava pra adicionar um botão "Consultar códigos de erro" que
+manda esses comandos e já devolve a lista de erros gravados, sem precisar
+esperar o usuário religar o console e capturar o boot inteiro. Fica registrado
+aqui como ideia de melhoria futura, não testado ainda.
 
 ## Confirmado 2026-10-04: não existe bloco de config I2C fora do que já patcheamos
 
