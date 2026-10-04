@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PS5 HDMI Tool — Patch de NOR para troca de chip HDMI (Realtek ⇄ Nuvoton MN864739)</title>
+<meta name="description" content="PS5 HDMI Tool: ferramenta gratuita que lê, grava e converte a NOR de placas PS5 Slim para trocar o chip HDMI Realtek RTD2175P por Nuvoton/Panasonic MN864739 (ou o inverso). Via leitor CH341A. Complementar ao Interposer DatZero.">
+<meta name="keywords" content="PS5 HDMI Tool, conserto PS5 HDMI, reparo placa PS5 sem video, troca chip HDMI PS5, Realtek RTD2175P, Nuvoton MN864739, substituir RTD2175P por MN864739, programador CH341A PS5, leitura gravacao NOR PS5, patch NOR PS5, interposer HDMI PS5 Slim, DatZero">
+<meta name="author" content="DatZero Foundation">
+<link rel="canonical" href="https://vendashson-rgb.github.io/ps5-hdmi-tool/">
+<link rel="icon" href="assets/logo.png" type="image/png">
+
+<!-- Open Graph -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="PS5 HDMI Tool">
+<meta property="og:title" content="PS5 HDMI Tool — Patch de NOR para troca de chip HDMI (Realtek ⇄ Nuvoton)">
+<meta property="og:description" content="Ferramenta gratuita para ler, gravar e converter a NOR de placas PS5 Slim, trocando o chip HDMI Realtek RTD2175P pelo Nuvoton/Panasonic MN864739 (ou o inverso). Testada com hardware real.">
+<meta property="og:image" content="https://vendashson-rgb.github.io/ps5-hdmi-tool/assets/screenshot.png">
+<meta property="og:url" content="https://vendashson-rgb.github.io/ps5-hdmi-tool/">
+<meta property="og:locale" content="pt_BR">
+<meta property="og:locale:alternate" content="en_US">
+
+<!-- Twitter Card -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="PS5 HDMI Tool — Patch de NOR para troca de chip HDMI (Realtek ⇄ Nuvoton)">
+<meta name="twitter:description" content="Ferramenta gratuita para ler, gravar e converter a NOR de placas PS5 Slim, trocando o chip HDMI Realtek RTD2175P pelo Nuvoton/Panasonic MN864739 (ou o inverso).">
+<meta name="twitter:image" content="https://vendashson-rgb.github.io/ps5-hdmi-tool/assets/screenshot.png">
+
+<!-- Structured data (schema.org) -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "PS5 HDMI Tool",
+  "alternateName": "PS5 HDMI Tool - Realtek RTD2175P to Nuvoton MN864739 NOR patch",
+  "description": "Ferramenta que le, grava e converte a NOR (.bin) de placas PS5 Slim para trocar o chip HDMI Realtek RTD2175P pelo Nuvoton/Panasonic MN864739, via leitor CH341A. Complementar ao Interposer DatZero.",
+  "applicationCategory": "UtilitiesApplication",
+  "operatingSystem": "Windows",
+  "softwareVersion": "1.0.0",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "BRL"
+  },
+  "author": {
+    "@type": "Organization",
+    "name": "DatZero Foundation",
+    "url": "https://datzerogames.com.br/"
+  },
+  "creator": {
+    "@type": "Person",
+    "name": "Jefferson Honorio"
+  },
+  "downloadUrl": "https://github.com/vendashson-rgb/ps5-hdmi-tool/releases/latest",
+  "codeRepository": "https://github.com/vendashson-rgb/ps5-hdmi-tool",
+  "image": "https://vendashson-rgb.github.io/ps5-hdmi-tool/assets/screenshot.png",
+  "inLanguage": ["pt-BR", "en", "es"]
+}
+</script>
+
+<style>
+  :root{
+    --bg:#000000; --bg-alt:#0a0a0a; --panel:#111111; --border:#2a2a2a;
+    --fg:#e6e6e6; --fg-muted:#9a9a9a; --accent:#8b5cf6; --ok:#4edea3;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font-family:"Segoe UI", -apple-system, Arial, sans-serif; line-height:1.55;
+  }
+  a{color:var(--ok)}
+  .wrap{max-width:880px; margin:0 auto; padding:0 20px}
+  header{padding:48px 0 24px; text-align:center}
+  header img{width:72px; height:72px; border-radius:14px; margin-bottom:14px}
+  h1{font-size:1.9rem; margin:0 0 6px; color:#fff}
+  .tagline{color:var(--fg-muted); font-size:1.05rem; margin:0 0 20px}
+  .lang-links{font-size:.9rem; color:var(--fg-muted); margin-bottom:28px}
+  .lang-links a{margin:0 6px}
+  .cta{display:flex; gap:12px; justify-content:center; flex-wrap:wrap; margin-bottom:8px}
+  .btn{
+    display:inline-block; padding:12px 22px; border-radius:8px; font-weight:600;
+    text-decoration:none; border:1px solid var(--border);
+  }
+  .btn-primary{background:var(--ok); color:#001b12}
+  .btn-secondary{background:var(--panel); color:var(--fg)}
+  .credit{font-size:.85rem; color:var(--fg-muted); margin-top:10px}
+  section{margin:40px 0}
+  h2{font-size:1.3rem; color:#fff; border-bottom:1px solid var(--border); padding-bottom:8px}
+  .shot{width:100%; border-radius:10px; border:1px solid var(--border); margin:18px 0}
+  .badge{
+    display:inline-block; background:#0e2b1f; color:var(--ok); border:1px solid #1d5c3f;
+    border-radius:6px; padding:3px 10px; font-size:.8rem; font-weight:600; margin-bottom:14px
+  }
+  .grid{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  @media (max-width:640px){ .grid{grid-template-columns:1fr} }
+  .card{background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:18px}
+  .card h3{margin:0 0 8px; font-size:1rem; color:#fff}
+  .card p{margin:0; color:var(--fg-muted); font-size:.92rem}
+  .keywords{color:var(--fg-muted); font-size:.85rem}
+  footer{border-top:1px solid var(--border); padding:28px 0 48px; text-align:center; color:var(--fg-muted); font-size:.85rem}
+  code{background:#1c1c1c; padding:2px 6px; border-radius:4px; font-size:.85em}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <img src="assets/logo.png" alt="Logo PS5 HDMI Tool">
+  <h1>PS5 HDMI Tool</h1>
+  <p class="tagline">Leitura, gravação e conversão de chip HDMI na NOR do PS5 Slim<br>
+  (Realtek RTD2175P ⇄ Nuvoton/Panasonic MN864739) via leitor CH341A</p>
+  <p class="lang-links">
+    🇧🇷 Português (nesta página) ·
+    <a href="https://github.com/vendashson-rgb/ps5-hdmi-tool/blob/main/README.en.md">🇺🇸 English</a>
+  </p>
+  <div class="cta">
+    <a class="btn btn-primary" href="https://github.com/vendashson-rgb/ps5-hdmi-tool/releases/latest">⬇️ Baixar instalador (.exe)</a>
+    <a class="btn btn-secondary" href="https://github.com/vendashson-rgb/ps5-hdmi-tool">Ver código-fonte no GitHub</a>
+  </div>
+  <p class="credit">Desenvolvido por <strong>DatZero Foundation</strong> — <a href="https://datzerogames.com.br/">datzerogames.com.br</a> · Técnico criador: Jefferson Honorio</p>
+</header>
+
+<section>
+  <span class="badge">✓ Testado com hardware real (CH341A)</span>
+  <h2>O que o programa faz</h2>
+  <p>
+    <strong>PS5 HDMI Tool</strong> é uma ferramenta gratuita que aplica um
+    <strong>patch no arquivo <code>.bin</code> da memória NOR</strong> de uma
+    placa PS5 Slim, tornando possível instalar um chip HDMI
+    <strong>Nuvoton (MN864739)</strong> em placas que originalmente exigem um
+    chip <strong>Realtek (RTD2175P)</strong> — e também no sentido contrário.
+    Em outras palavras: conversão de CI HDMI do PS5 Slim por reaproveitamento
+    de componente, uma alternativa pra quando o chip Realtek original está em
+    falta no mercado de reposição.
+  </p>
+  <img class="shot" src="assets/screenshot.png" alt="Tela principal do PS5 HDMI Tool detectando um leitor CH341A">
+  <p>
+    Esta ferramenta é o lado <strong>software</strong> da conversão. A troca
+    física do chip (retrabalho/microssoldagem) é feita com o
+    <a href="https://github.com/vendashson-rgb/ps5-hdmi-tool/blob/main/docs/GUIA_INSTALACAO_INTERPOSER.md"><strong>Interposer DatZero</strong></a>
+    — os dois são complementares: o Interposer resolve a parte elétrica/física
+    do CI HDMI, e o PS5 HDMI Tool resolve a parte da NOR.
+  </p>
+</section>
+
+<section>
+  <h2>Principais recursos</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>Leitura e gravação de NOR</h3>
+      <p>Via leitor CH341A, com dupla leitura e verificação byte a byte antes de salvar qualquer backup.</p>
+    </div>
+    <div class="card">
+      <h3>Conversão Realtek ⇄ Nuvoton</h3>
+      <p>Gera o patch da NOR pra trocar o chip HDMI detectado, com pré-visualização antes de gravar.</p>
+    </div>
+    <div class="card">
+      <h3>Analisar arquivo .bin</h3>
+      <p>Analisa e converte um dump de NOR salvo no PC, sem precisar de placa conectada.</p>
+    </div>
+    <div class="card">
+      <h3>3 idiomas</h3>
+      <p>Interface completa em português, inglês e espanhol, trocando na hora pelas bandeirinhas.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Instalação</h2>
+  <p>
+    Baixe o instalador <code>PS5_HDMI_Tool_Setup.exe</code> na
+    <a href="https://github.com/vendashson-rgb/ps5-hdmi-tool/releases/latest">página de releases</a>.
+    Ele instala o programa e registra o driver do leitor CH341A automaticamente —
+    não precisa instalar Python nem nada além dele.
+  </p>
+</section>
+
+<section>
+  <h2>Termos relacionados</h2>
+  <p class="keywords">
+    conserto PS5 HDMI · reparo placa PS5 sem imagem/sem vídeo · troca chip HDMI PS5 ·
+    Realtek RTD2175P sem estoque · substituir RTD2175P por MN864739 ·
+    Nuvoton MN864739 no lugar do Realtek · programador CH341A PS5 ·
+    leitura e gravação de NOR PS5 · patch de NOR PS5 · interposer HDMI PS5 Slim ·
+    PS5 no video fix · PS5 HDMI chip repair · PS5 HDMI chip swap
+  </p>
+</section>
+
+<footer>
+  <p>
+    Código aberto no <a href="https://github.com/vendashson-rgb/ps5-hdmi-tool">GitHub</a> ·
+    <a href="https://github.com/vendashson-rgb/ps5-hdmi-tool/blob/main/docs/GUIA_INSTALACAO_INTERPOSER.md">Guia do Interposer DatZero</a> ·
+    DatZero Foundation © 2026
+  </p>
+</footer>
+
+</div>
+</body>
+</html>
