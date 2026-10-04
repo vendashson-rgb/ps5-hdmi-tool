@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass, field
 
+import slb2
 from i18n import t
 
 EXPECTED_SIZE = 0x200000  # 2 MB -- W25Q16JV e equivalentes
@@ -85,6 +86,12 @@ WIFI_MAC_LEN = 6
 OFFSET_FW_CURRENT = 0x1C8C30
 FW_LEN = 8
 
+OFFSET_ACT_SLOT = 0x001000
+OFFSET_EMC_IPL_A = 0x004000
+OFFSET_EMC_IPL_B = 0x082000
+EMC_IPL_LEN = 0x7E000
+_EMC_VERSION_ENTRY = "C0008001"
+
 OFFSET_CONVERSION_FIELDS = {
     # offset: (nome, bytes_originais_esperados_documentados, acao)
     0x1C40C6: "zerar (20 bytes, ate 0x1C40D9) na conversao",
@@ -126,6 +133,9 @@ class NorInfo:
     region: str | None
     wifi_mac: str | None
     fw_current: str | None
+    act_slot: str | None
+    emc_version_active: str | None
+    emc_version_backup: str | None
     warnings: list[str] = field(default_factory=list)
 
 
@@ -262,6 +272,25 @@ def extract_fw_current(data: bytes) -> str | None:
     return ".".join(f"{b:02X}" for b in rev)
 
 
+def extract_act_slot(data: bytes) -> str:
+    return "A" if data[OFFSET_ACT_SLOT] == 0x00 else "B"
+
+
+def extract_emc_version(data: bytes, offset: int) -> str | None:
+    """Versao do firmware do EMC (coprocessador da Southbridge), lida de dentro
+    do container SLB2 da particao emc_ipl_a/emc_ipl_b. Ver NOTES.md."""
+    partition = data[offset:offset + EMC_IPL_LEN]
+    meta = slb2.get_entry(partition, _EMC_VERSION_ENTRY)
+    if not meta or len(meta) < 16:
+        return None
+    v = meta[0x0A:0x0A + 6]
+    return "%d.%d.%d" % (
+        int.from_bytes(v[4:], "little"),
+        int.from_bytes(v[2:4], "little"),
+        int.from_bytes(v[0:2], "little"),
+    )
+
+
 def extract_wifi_rev_hint(data: bytes) -> str | None:
     """EXPERIMENTAL: ve NOTES.md. Nao confirmado -- so para demonstracao."""
     raw = data[OFFSET_WIFI_REV_HINT]
@@ -306,6 +335,16 @@ def parse_nor(data: bytes) -> NorInfo:
     wifi_mac = extract_wifi_mac(data) if size >= OFFSET_WIFI_MAC + WIFI_MAC_LEN else None
     fw_current = extract_fw_current(data) if size >= OFFSET_FW_CURRENT + FW_LEN else None
 
+    act_slot = extract_act_slot(data) if size >= OFFSET_ACT_SLOT + 1 else None
+    emc_a = extract_emc_version(data, OFFSET_EMC_IPL_A) if size >= OFFSET_EMC_IPL_A + EMC_IPL_LEN else None
+    emc_b = extract_emc_version(data, OFFSET_EMC_IPL_B) if size >= OFFSET_EMC_IPL_B + EMC_IPL_LEN else None
+    if act_slot == "A":
+        emc_version_active, emc_version_backup = emc_a, emc_b
+    elif act_slot == "B":
+        emc_version_active, emc_version_backup = emc_b, emc_a
+    else:
+        emc_version_active, emc_version_backup = None, None
+
     return NorInfo(
         size=size,
         size_ok=size_ok,
@@ -324,6 +363,9 @@ def parse_nor(data: bytes) -> NorInfo:
         region=region,
         wifi_mac=wifi_mac,
         fw_current=fw_current,
+        act_slot=act_slot,
+        emc_version_active=emc_version_active,
+        emc_version_backup=emc_version_backup,
         warnings=warnings,
     )
 

@@ -155,6 +155,7 @@ STRINGS: dict[str, dict[str, str]] = {
     "hw.log.region": {"pt": "Regiao: {val}", "en": "Region: {val}", "es": "Region: {val}"},
     "hw.log.wifi_mac": {"pt": "Endereco MAC Wi-Fi: {val}", "en": "Wi-Fi MAC address: {val}", "es": "Direccion MAC Wi-Fi: {val}"},
     "hw.log.fw_current": {"pt": "Firmware atual gravado na NOR: {val}", "en": "Current firmware stored in NOR: {val}", "es": "Firmware actual grabado en la NOR: {val}"},
+    "hw.log.emc_version": {"pt": "Firmware do EMC -- ativo (slot {slot}): {active} / backup: {backup}", "en": "EMC firmware -- active (slot {slot}): {active} / backup: {backup}", "es": "Firmware del EMC -- activo (slot {slot}): {active} / backup: {backup}"},
     "hw.err_read_title": {"pt": "Erro na leitura", "en": "Read error", "es": "Error en la lectura"},
 
     "hw.no_nor_title": {"pt": "Leia a NOR primeiro", "en": "Read the NOR first", "es": "Lea la NOR primero"},
@@ -223,6 +224,7 @@ STRINGS: dict[str, dict[str, str]] = {
     "file.field.region": {"pt": "Regiao:", "en": "Region:", "es": "Region:"},
     "file.field.wifi_mac": {"pt": "Endereco MAC Wi-Fi:", "en": "Wi-Fi MAC address:", "es": "Direccion MAC Wi-Fi:"},
     "file.field.fw_current": {"pt": "Firmware atual gravado na NOR:", "en": "Current firmware stored in NOR:", "es": "Firmware actual grabado en la NOR:"},
+    "file.field.emc_version": {"pt": "Firmware do EMC (ativo / backup):", "en": "EMC firmware (active / backup):", "es": "Firmware del EMC (activo / backup):"},
     "file.patch_frame_title": {"pt": "Aplicar patch (chip HDMI)", "en": "Apply patch (HDMI chip)", "es": "Aplicar parche (chip HDMI)"},
     "file.target_label": {"pt": "Gravar arquivo configurado para:", "en": "Save file configured for:", "es": "Guardar archivo configurado para:"},
     "file.btn_save": {"pt": "Salvar NOR com patch...", "en": "Save NOR with patch...", "es": "Guardar NOR con parche..."},

@@ -568,6 +568,7 @@ class App(tk.Tk):
             ("region", "file.field.region"),
             ("cfi", "file.field.cfi"),
             ("fw_current", "file.field.fw_current"),
+            ("emc_version", "file.field.emc_version"),
             ("wifi_rev", "file.field.wifi_rev"),
         ]
         self.file_info_labels = {}
@@ -679,6 +680,11 @@ class App(tk.Tk):
         self.file_info_labels["region"].configure(text=info.region or "--")
         self.file_info_labels["cfi"].configure(text=info.sku or info.cfi_code or "--")
         self.file_info_labels["fw_current"].configure(text=info.fw_current or "--")
+        if info.emc_version_active:
+            emc_text = f"{info.emc_version_active} / {info.emc_version_backup or '--'}"
+        else:
+            emc_text = "--"
+        self.file_info_labels["emc_version"].configure(text=emc_text)
         self.file_info_labels["wifi_rev"].configure(text=info.wifi_rev_hint or "--")
 
         self.file_txt.configure(state="normal")
@@ -1619,6 +1625,13 @@ class App(tk.Tk):
         self.log(t("hw.log.region", val=info.region))
         self.log(t("hw.log.cfi", val=info.sku or info.cfi_code))
         self.log(t("hw.log.fw_current", val=info.fw_current))
+        if info.emc_version_active:
+            self.log(t(
+                "hw.log.emc_version",
+                slot=info.act_slot,
+                active=info.emc_version_active,
+                backup=info.emc_version_backup or "--",
+            ))
         self.log(t("hw.log.wifi_rev", val=info.wifi_rev_hint))
         if info.warnings:
             self.log("")

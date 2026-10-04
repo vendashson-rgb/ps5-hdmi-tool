@@ -203,7 +203,7 @@ EDM-044/EDM-050; 2 com leitor de disco: EDM-O33/EDM-030):
   só descrita a partir de outro ponto inicial. Mais uma confirmação
   independente (4ª fonte agora) do nosso campo de firmware atual.
 
-## Testado 2026-10-04: versão de firmware do EMC (não implementado na interface, por pedido do usuário)
+## Testado e implementado 2026-10-04: versão de firmware do EMC
 
 Revisitando o `andy-man/ps5-wee-tools` (release v0.1.8, link direto que o
 usuário trouxe) — já tínhamos estudado esse projeto a fundo antes; essa
@@ -240,14 +240,14 @@ Três fontes de dado completamente independentes (nosso offset NVS já
 confirmado, o parser SLB2 novo, e a tabela MD5 do projeto externo)
 concordando perfeitamente — confiança alta nisso.
 
-**Decisão do usuário**: testar e documentar, mas **não implementar na
-interface agora** (não é usado na conversão de chip HDMI, foge do escopo
-atual do programa). Fica registrado aqui pronto pra implementar se um dia
-fizer sentido (ex.: feature de diagnóstico mais completo) — precisaria
-portar o parser SLB2 (simples, ~30 linhas) pro `nor_parser.py` e decidir se
-vale embutir a tabela MD5→versão (ela muda a cada firmware novo do PS5,
-exigiria manutenção) ou só mostrar a versão decodificada sem comparar com
-tabela nenhuma.
+**Atualização 2026-10-04 (v1.0.2)**: implementado. Novo módulo `slb2.py`
+(parser genérico do container, ~40 linhas) + `extract_act_slot()` e
+`extract_emc_version()` em `nor_parser.py`. Mostra a versão do slot **ativo**
+e do **backup** (não embutimos a tabela MD5→firmware-de-sistema — ela muda a
+cada firmware novo do PS5 e exigiria manutenção constante; mostramos só a
+versão decodificada do EMC, que não depende de tabela nenhuma). Campo novo
+"Firmware do EMC (ativo / backup)" na aba "Analisar arquivo" e no log da aba
+de hardware, nos 3 idiomas.
 
 ## Confirmado 2026-10-04: não existe bloco de config I2C fora do que já patcheamos
 
