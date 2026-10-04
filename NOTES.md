@@ -62,6 +62,42 @@ sem precisar do algoritmo — é só consultar a tabela. Pra um console com um
 byte de REV Wi-Fi novo (não listado), ainda não temos como prever o valor —
 precisa de uma amostra real original com esse byte pra descobrir.
 
+## Confirmado 2026-10-04: não existe bloco de config I2C fora do que já patcheamos
+
+Dúvida levantada: o CI HDMI (Realtek ou Nuvoton) se comunica com a Southbridge
+(CXD90069GG) via I2C — será que existe, em algum outro lugar da NOR, um bloco
+de configuração do barramento I2C (endereço de slave, etc.) que ainda não
+identificamos e que precisaria ser ajustado na conversão?
+
+**Teste:** diff byte a byte do arquivo **inteiro** (2.097.152 bytes, não só o
+bloco 0x1C4000-0x1C4900) entre `EDM-044 REALTEK ... REV. 1.4.bin` (original) e
+`EDM-44 REALTEK --- PANASONIC ... .bin` (mesmo console físico, convertido de
+verdade por terceiro). Isolando a variável certa — só o chip HDMI mudou, nada
+mais nesse console.
+
+**Resultado:** exatamente **25 bytes diferentes em todo o arquivo**, e todos
+caem dentro dos 5 blocos já catalogados acima (seletor 0x1C4062, zerar
+0x1C40C6-D9, checksum 0x1C41FE-FF, zerar 0x1C4923, contador 0x1C49BF). Nenhuma
+outra diferença em lugar nenhum do arquivo de 2 MB.
+
+**Conclusão:** não existe, nesta NOR de 2 MB, nenhum bloco separado de
+configuração do barramento I2C do CI HDMI. A explicação mais provável é que o
+firmware da própria CXD90069GG (que não mora nesta flash — essa NOR funciona
+como uma "EEPROM de configuração da placa", pequena demais pra conter o
+firmware da Southbridge) já contém os dois drivers I2C embutidos (Realtek e
+Nuvoton), com endereço/protocolo fixos no firmware; o byte seletor
+(0x1C4062) só decide qual dos dois usar no boot. Se um console convertido
+der erro de UART `C0810303` (falha I2C Southbridge↔CI HDMI, confirmado em
+kasynparts.com/ps5-repair-wiki-hdmi-subsystem-mn864739) mesmo com o patch
+certo, é indício de problema físico (trilha SDA/SCL, solda, chip defeituoso),
+não de configuração faltando na NOR.
+
+**Nota sobre falso-ruído:** um diff do arquivo inteiro entre EDM-050 (Realtek)
+e EDM-051 (Nuvoton) — consoles **diferentes**, mesma REV 1.5 — deu ~490 mil
+bytes diferentes espalhados pelo arquivo todo (dados únicos por aparelho). Não
+serve como evidência pra essa pergunta porque não isola a variável do chip —
+só o par "mesmo console, convertido de verdade" serve pra esse teste.
+
 ## Em investigação: REV do módulo Wi-Fi/Bluetooth
 
 **Importante:** o "REV 1.x" nos nomes dos arquivos (REV 1.1, 1.3, 1.4, 1.5) é a
