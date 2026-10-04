@@ -203,6 +203,52 @@ EDM-044/EDM-050; 2 com leitor de disco: EDM-O33/EDM-030):
   só descrita a partir de outro ponto inicial. Mais uma confirmação
   independente (4ª fonte agora) do nosso campo de firmware atual.
 
+## Testado 2026-10-04: versão de firmware do EMC (não implementado na interface, por pedido do usuário)
+
+Revisitando o `andy-man/ps5-wee-tools` (release v0.1.8, link direto que o
+usuário trouxe) — já tínhamos estudado esse projeto a fundo antes; essa
+release específica não trouxe offset novo de NOR, só recursos do app deles
+(validação de MD5, 20 idiomas, etc.) e menciona uma versão PRO paga/fechada
+com "patcher de SouthBridge (EMC)". O que valia testar: a forma como eles
+leem a versão do **firmware do EMC** (coprocessador da própria Southbridge),
+diferente da "versão do sistema" que já temos.
+
+**Método**: as partições `emc_ipl_a` (offset 0x004000) e `emc_ipl_b` (offset
+0x082000, cada uma 0x7E000 bytes) são containers no formato **SLB2** (magic
+`"SLB2"`, header com lista de entradas nome+offset+tamanho — formato próprio
+da Sony, não documentamos antes). Dentro de cada uma tem uma entrada chamada
+`"C0008001"` cujos bytes 0x0A-0x10 decodificam a versão do EMC (3 campos
+little-endian de 2 bytes cada, formatados como `major.minor.build`).
+
+**Resultado — bateu nas 4 amostras testadas, com validação cruzada tripla**:
+o MD5 de cada partição `emc_ipl_a`/`emc_ipl_b` (truncada no tamanho
+declarado no próprio header SLB2) bate **exatamente** com a tabela
+`EMC_IPL_MD5` do `data/data.py` do mesmo projeto (que mapeia MD5 → versão
+do EMC → lista de firmwares de sistema compatíveis) — e a versão de sistema
+que aparece nessa tabela pra cada MD5 bate com o nosso campo `fw_current`
+(0x1C8C30) já implementado, sempre pro slot marcado como ativo
+(`ACT_SLOT`, offset 0x001000):
+
+| Amostra | emc_ipl ativo (slot) | Versão EMC decodificada | Nosso `fw_current` | Bate? |
+|---|---|---|---|---|
+| EDM-044 | B | 1.30.0 | 14.00.00.39 (FW 14.00) | Sim — MD5 da 1.30.0 na tabela lista fw:['14.00'] |
+| EDM-050 | A | 1.26.0 | 12.20.00.05 (FW 12.20) | Sim — MD5 da 1.26.0 lista fw inclui '12.20' |
+| EDM-051 | B | 1.26.0 | 12.60.00.06 (FW 12.60) | Sim — mesma versão EMC, fw inclui '12.60' |
+| EDM-O33 | B | 1.28.1 | 13.60.00.07 (FW 13.60) | Sim — MD5 da 1.28.1 lista fw:['13.60'] |
+
+Três fontes de dado completamente independentes (nosso offset NVS já
+confirmado, o parser SLB2 novo, e a tabela MD5 do projeto externo)
+concordando perfeitamente — confiança alta nisso.
+
+**Decisão do usuário**: testar e documentar, mas **não implementar na
+interface agora** (não é usado na conversão de chip HDMI, foge do escopo
+atual do programa). Fica registrado aqui pronto pra implementar se um dia
+fizer sentido (ex.: feature de diagnóstico mais completo) — precisaria
+portar o parser SLB2 (simples, ~30 linhas) pro `nor_parser.py` e decidir se
+vale embutir a tabela MD5→versão (ela muda a cada firmware novo do PS5,
+exigiria manutenção) ou só mostrar a versão decodificada sem comparar com
+tabela nenhuma.
+
 ## Confirmado 2026-10-04: não existe bloco de config I2C fora do que já patcheamos
 
 Dúvida levantada: o CI HDMI (Realtek ou Nuvoton) se comunica com a Southbridge
