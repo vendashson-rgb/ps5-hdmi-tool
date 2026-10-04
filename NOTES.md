@@ -170,6 +170,39 @@ na interface: ps5-wee-tools chama `0x1C8C10` de "Minimum FW" e `0x1C8C20` de
 confiar cegamente em nenhuma das duas fontes se um dia implementarmos esses
 campos.
 
+## Estudo 2026-10-04: fórum stetofix (post de jul/2023, pré-PS5 Slim)
+
+Usuário trouxe um print de fórum (stetofix.com, tópico "NOR PS5 / Dumps
+Flash", usuário "Calvin", jul/2023 — **anterior ao lançamento do PS5 Slim**,
+o que explica por que ele não menciona o valor `0x01` em `0x1C7011` que a
+gente já usa pra "sem leitor de disco"). Testamos os 3 offsets que ele cita
+e a gente ainda não tinha, contra 4 amostras reais (2 sem leitor de disco:
+EDM-044/EDM-050; 2 com leitor de disco: EDM-O33/EDM-030):
+
+- **`0x1C7270` ("Chave BD?", só em dumps de BD) — confirmado 4/4.** Vazio
+  (`0xFF`) nos 2 consoles sem leitor de disco, com dado real nos 2 consoles
+  com leitor de disco. Correlação perfeita, reforça (de forma independente)
+  a deteccao de leitor de disco que já temos via `0x1C4000` byte[5]. Não
+  implementado na interface — serve como sinal extra de confirmação, não
+  como campo novo necessário.
+- **`0x1C6000` (MACs de controle Bluetooth pareado, a cada 8 bytes) —
+  confirmado, informação nova.** É uma lista real de MACs (6 bytes + 2 bytes
+  extra cada) até bater num run de `0xFF`. Quantidade variou bastante entre
+  consoles (1 a 4+ entradas nas amostras testadas, um dos consoles veio tão
+  cheio que passou da janela de 64 bytes testada). **Candidato forte a
+  funcionalidade futura**: dá pra mostrar "quantos controles já foram
+  pareados nesse console" — útil pra quem compra placa usada querer saber se
+  ela já foi utilizada antes. Não implementado ainda.
+- **`0x1C73C0` ("3 MACs") — confirmado, sem necessidade de mudar nada.** São
+  3 MACs sequenciais (ex. terminando em `:33`/`:34`/`:35`) — o nosso campo já
+  captura o primeiro (o relevante), os outros dois são sempre +1/+2 dele.
+- **`0x1C8C34` ("FW Versionnr") — não é um campo novo nem diverge do
+  nosso.** Refazendo a conta com o nosso algoritmo real (inverter os 8 bytes
+  de `0x1C8C30` e pegar os 4 primeiros), `0x1C8C34` cai exatamente na metade
+  de trás do mesmo campo de 8 bytes que já usamos — é a mesma informação,
+  só descrita a partir de outro ponto inicial. Mais uma confirmação
+  independente (4ª fonte agora) do nosso campo de firmware atual.
+
 ## Confirmado 2026-10-04: não existe bloco de config I2C fora do que já patcheamos
 
 Dúvida levantada: o CI HDMI (Realtek ou Nuvoton) se comunica com a Southbridge
