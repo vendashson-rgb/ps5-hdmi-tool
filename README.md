@@ -5,6 +5,8 @@
 Desenvolvido por **DatZero Foundation** — [datzerogames.com.br](https://datzerogames.com.br/)
 Técnico criador: **Jefferson Honorio**
 
+🔗 **[Site do projeto](https://vendashson-rgb.github.io/ps5-hdmi-tool/)**
+
 ![Tela principal do PS5 HDMI Tool](docs/assets/screenshot.png)
 
 ## 🎯 Para que serve
