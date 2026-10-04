@@ -560,10 +560,14 @@ class App(tk.Tk):
             ("sha256", "file.field.sha256"),
             ("chip", "file.field.chip"),
             ("mac", "file.field.mac"),
+            ("wifi_mac", "file.field.wifi_mac"),
             ("mobo_serial", "file.field.mobo_serial"),
             ("board_serial", "file.field.board_serial"),
             ("raw_id", "file.field.raw_id"),
+            ("board_family", "file.field.board_family"),
+            ("region", "file.field.region"),
             ("cfi", "file.field.cfi"),
+            ("fw_current", "file.field.fw_current"),
             ("wifi_rev", "file.field.wifi_rev"),
         ]
         self.file_info_labels = {}
@@ -664,10 +668,17 @@ class App(tk.Tk):
         chip_text = info.chip_name if info.chip_raw < 0 else f"{info.chip_name} (byte bruto 0x{info.chip_raw:02X})"
         self.file_info_labels["chip"].configure(text=chip_text)
         self.file_info_labels["mac"].configure(text=info.mac or "--")
+        self.file_info_labels["wifi_mac"].configure(text=info.wifi_mac or "--")
         self.file_info_labels["mobo_serial"].configure(text=info.mobo_serial or "--")
         self.file_info_labels["board_serial"].configure(text=info.board_serial or "--")
         self.file_info_labels["raw_id"].configure(text=info.raw_id_block or "--")
-        self.file_info_labels["cfi"].configure(text=info.cfi_code or "--")
+        board_family_text = (
+            f"{info.board_family} ({info.disc_drive})" if info.board_family else "--"
+        )
+        self.file_info_labels["board_family"].configure(text=board_family_text)
+        self.file_info_labels["region"].configure(text=info.region or "--")
+        self.file_info_labels["cfi"].configure(text=info.sku or info.cfi_code or "--")
+        self.file_info_labels["fw_current"].configure(text=info.fw_current or "--")
         self.file_info_labels["wifi_rev"].configure(text=info.wifi_rev_hint or "--")
 
         self.file_txt.configure(state="normal")
@@ -1599,10 +1610,15 @@ class App(tk.Tk):
         self.log(t("hw.log.sha256", sha=info.sha256))
         self.log(t("hw.log.chip", name=info.chip_name, raw=f"{info.chip_raw:02X}"))
         self.log(t("hw.log.mac", mac=info.mac))
+        self.log(t("hw.log.wifi_mac", val=info.wifi_mac))
         self.log(t("hw.log.mobo_serial", val=info.mobo_serial))
         self.log(t("hw.log.board_serial", val=info.board_serial))
         self.log(t("hw.log.raw_id", val=info.raw_id_block))
-        self.log(t("hw.log.cfi", val=info.cfi_code))
+        if info.board_family:
+            self.log(t("hw.log.board_family", family=info.board_family, disc=info.disc_drive))
+        self.log(t("hw.log.region", val=info.region))
+        self.log(t("hw.log.cfi", val=info.sku or info.cfi_code))
+        self.log(t("hw.log.fw_current", val=info.fw_current))
         self.log(t("hw.log.wifi_rev", val=info.wifi_rev_hint))
         if info.warnings:
             self.log("")

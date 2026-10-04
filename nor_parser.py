@@ -47,6 +47,44 @@ MOBO_SERIAL_LEN = 16
 OFFSET_BOARD_SERIAL = 0x1C7210
 BOARD_SERIAL_LEN = 17
 
+# Campos abaixo: offsets conferidos contra o codigo-fonte do PS5 Wee Tools
+# (andy-man, github.com/andy-man/ps5-wee-tools -- com suporte a PS5 Slim) e
+# validados batendo de forma consistente nas nossas 7 amostras reais de PS5
+# Slim (ver NOTES.md, secao "Estudo 2026-10-04: PS5 Wee Tools").
+OFFSET_BOARD_ID = 0x1C4000
+BOARD_ID_LEN = 8
+
+OFFSET_SKU = 0x1C7230
+SKU_LEN = 13
+
+OFFSET_REGION = 0x1C7236
+REGION_LEN = 2
+# Baseado na tabela de regioes do PS5 Wee Tools -- so os codigos vistos nas
+# nossas amostras (todas Brasil/America do Sul) foram confirmados na pratica.
+_REGION_NAMES = {
+    "00": "Japao",
+    "01": "EUA, Canada",
+    "15": "EUA, Canada",
+    "02": "Australia / Nova Zelandia",
+    "03": "Reino Unido / Irlanda",
+    "04": "Europa / Oriente Medio / Africa",
+    "16": "Europa / Oriente Medio / Africa",
+    "05": "Coreia do Sul",
+    "06": "Sudeste Asiatico / Hong Kong",
+    "07": "Taiwan",
+    "08": "Russia, Ucrania, India, Asia Central",
+    "09": "China continental",
+    "11": "Mexico, America Central e do Sul",
+    "14": "Mexico, America Central e do Sul",
+    "18": "Singapura, Coreia, Asia",
+}
+
+OFFSET_WIFI_MAC = 0x1C73C0
+WIFI_MAC_LEN = 6
+
+OFFSET_FW_CURRENT = 0x1C8C30
+FW_LEN = 8
+
 OFFSET_CONVERSION_FIELDS = {
     # offset: (nome, bytes_originais_esperados_documentados, acao)
     0x1C40C6: "zerar (20 bytes, ate 0x1C40D9) na conversao",
@@ -82,6 +120,12 @@ class NorInfo:
     board_serial: str | None
     cfi_code: str | None
     wifi_rev_hint: str | None
+    board_family: str | None
+    disc_drive: str | None
+    sku: str | None
+    region: str | None
+    wifi_mac: str | None
+    fw_current: str | None
     warnings: list[str] = field(default_factory=list)
 
 
@@ -169,6 +213,55 @@ def extract_cfi_code(data: bytes) -> str | None:
         return None
 
 
+def extract_board_family(data: bytes) -> tuple[str | None, str | None]:
+    """Familia da placa (EDM-0XX) e presenca de leitor de disco, a partir de 0x1C4000.
+
+    byte[2] = numero da familia EDM (ex.: 0x04 -> "EDM-04X"). byte[5] = flag
+    de leitor de disco (0x01 = tem, 0x03 = nao tem). Confirmado 7/7 nas
+    nossas amostras reais (ver NOTES.md).
+    """
+    chunk = data[OFFSET_BOARD_ID:OFFSET_BOARD_ID + BOARD_ID_LEN]
+    if len(chunk) < 6:
+        return None, None
+    family = f"EDM-0{chunk[2]}X"
+    disc = {0x01: t("backend.parser.disc_yes"), 0x03: t("backend.parser.disc_no")}.get(chunk[5])
+    return family, disc
+
+
+def extract_sku(data: bytes) -> str | None:
+    """SKU/modelo do console (ex.: CFI-2014 B01X), 13 bytes em 0x1C7230."""
+    return _extract_fixed_ascii(data, OFFSET_SKU, SKU_LEN)
+
+
+def extract_region(data: bytes) -> str | None:
+    """Codigo de regiao (2 digitos) em 0x1C7236, com nome quando reconhecido."""
+    code = _extract_fixed_ascii(data, OFFSET_REGION, REGION_LEN)
+    if not code:
+        return None
+    name = _REGION_NAMES.get(code)
+    return f"{code} ({name})" if name else code
+
+
+def extract_wifi_mac(data: bytes) -> str:
+    mac_bytes = data[OFFSET_WIFI_MAC:OFFSET_WIFI_MAC + WIFI_MAC_LEN]
+    return ":".join(f"{b:02X}" for b in mac_bytes)
+
+
+def extract_fw_current(data: bytes) -> str | None:
+    """Versao de firmware atual, 8 bytes em 0x1C8C30 (ordem de bytes invertida).
+
+    So os 4 primeiros bytes (ja invertidos) formam a versao exibida pelo PS5
+    Wee Tools -- os outros 4 sao reservados/desconhecidos.
+    """
+    chunk = data[OFFSET_FW_CURRENT:OFFSET_FW_CURRENT + FW_LEN]
+    if len(chunk) < 4:
+        return None
+    rev = chunk[::-1][:4]
+    if rev == b"\xff\xff\xff\xff":
+        return None
+    return ".".join(f"{b:02X}" for b in rev)
+
+
 def extract_wifi_rev_hint(data: bytes) -> str | None:
     """EXPERIMENTAL: ve NOTES.md. Nao confirmado -- so para demonstracao."""
     raw = data[OFFSET_WIFI_REV_HINT]
@@ -205,6 +298,14 @@ def parse_nor(data: bytes) -> NorInfo:
     if wifi_rev_hint is not None:
         warnings.append(t("backend.parser.wifi_rev_warning"))
 
+    board_family, disc_drive = (
+        extract_board_family(data) if size >= OFFSET_BOARD_ID + BOARD_ID_LEN else (None, None)
+    )
+    sku = extract_sku(data) if size >= OFFSET_SKU + SKU_LEN else None
+    region = extract_region(data) if size >= OFFSET_REGION + REGION_LEN else None
+    wifi_mac = extract_wifi_mac(data) if size >= OFFSET_WIFI_MAC + WIFI_MAC_LEN else None
+    fw_current = extract_fw_current(data) if size >= OFFSET_FW_CURRENT + FW_LEN else None
+
     return NorInfo(
         size=size,
         size_ok=size_ok,
@@ -217,6 +318,12 @@ def parse_nor(data: bytes) -> NorInfo:
         board_serial=board_serial,
         cfi_code=cfi,
         wifi_rev_hint=wifi_rev_hint,
+        board_family=board_family,
+        disc_drive=disc_drive,
+        sku=sku,
+        region=region,
+        wifi_mac=wifi_mac,
+        fw_current=fw_current,
         warnings=warnings,
     )
 
