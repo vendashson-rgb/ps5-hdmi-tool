@@ -240,8 +240,8 @@ STRINGS: dict[str, dict[str, str]] = {
     "file.btn_save": {"pt": "Salvar NOR com patch...", "en": "Save NOR with patch...", "es": "Guardar NOR con parche..."},
 
     "file.donor_sep_label": {"pt": "-- ou --", "en": "-- or --", "es": "-- o --"},
-    "file.btn_donor": {"pt": "Usar arquivo-base automatico (BGA)", "en": "Use automatic donor file (BGA)", "es": "Usar archivo base automatico (BGA)"},
-    "file.log.donor_available": {"pt": "Arquivo-base disponivel para a familia {family}: {name}. Clique em 'Usar arquivo-base automatico (BGA)' para gravar os dados deste console nele.", "en": "Donor file available for family {family}: {name}. Click 'Use automatic donor file (BGA)' to write this console's data into it.", "es": "Archivo base disponible para la familia {family}: {name}. Haga clic en 'Usar archivo base automatico (BGA)' para grabar los datos de esta consola en el."},
+    "file.btn_donor": {"pt": "Usar arquivo-base automatico", "en": "Use automatic donor file", "es": "Usar archivo base automatico"},
+    "file.log.donor_available": {"pt": "Arquivo-base disponivel para a familia {family}: {name}. Clique em 'Usar arquivo-base automatico' para gravar os dados deste console nele.", "en": "Donor file available for family {family}: {name}. Click 'Use automatic donor file' to write this console's data into it.", "es": "Archivo base disponible para la familia {family}: {name}. Haga clic en 'Usar archivo base automatico' para grabar los datos de esta consola en el."},
     "file.log.donor_title": {"pt": "USANDO ARQUIVO-BASE AUTOMATICO: {path}", "en": "USING AUTOMATIC DONOR FILE: {path}", "es": "USANDO ARCHIVO BASE AUTOMATICO: {path}"},
 
     "file.browse_title": {"pt": "Selecione o arquivo NOR (.bin) para analisar", "en": "Select the NOR file (.bin) to analyze", "es": "Seleccione el archivo NOR (.bin) a analizar"},

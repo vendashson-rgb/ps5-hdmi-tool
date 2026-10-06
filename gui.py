@@ -139,18 +139,18 @@ DETECT_FAILED_SIZE = (260, 260)
 
 BACKUP_DIR = APP_DIR / "database" / "backups"
 
-BGA_DIR = BUNDLE_DIR / "bga"
+DONOR_FILES_DIR = BUNDLE_DIR / "donor_files"
 
 
-def _load_bga_donors() -> dict[str, pathlib.Path]:
+def _load_donor_files() -> dict[str, pathlib.Path]:
     """Mapeia familia de placa (ex. "EDM-05X") -> arquivo-base correspondente
-    em bga/, pra conversao automatica na aba de analise de arquivo. Qualquer
-    arquivo-base novo colocado em bga/ entra automaticamente no mapeamento,
-    sem precisar mexer no codigo."""
+    em donor_files/, pra conversao automatica na aba de analise de arquivo.
+    Qualquer arquivo-base novo colocado em donor_files/ entra automaticamente
+    no mapeamento, sem precisar mexer no codigo."""
     donors: dict[str, pathlib.Path] = {}
-    if not BGA_DIR.is_dir():
+    if not DONOR_FILES_DIR.is_dir():
         return donors
-    for path in sorted(BGA_DIR.glob("*.bin")):
+    for path in sorted(DONOR_FILES_DIR.glob("*.bin")):
         try:
             data = path.read_bytes()
         except OSError:
@@ -198,7 +198,7 @@ class App(tk.Tk):
         self.file_info: NorInfo | None = None
         self.file_patch: PatchResult | None = None
         self._file_donor_path: pathlib.Path | None = None
-        self.bga_donors = _load_bga_donors()
+        self.donor_files = _load_donor_files()
 
         self.uart: UartReader | None = None
         self.uart_connected = False
@@ -732,7 +732,7 @@ class App(tk.Tk):
         self.file_patch = None
         self.btn_file_save.configure(state="disabled")
 
-        donor_path = self.bga_donors.get(info.board_family) if info.board_family else None
+        donor_path = self.donor_files.get(info.board_family) if info.board_family else None
         self._file_donor_path = donor_path
         self.btn_file_donor.configure(state="normal" if donor_path is not None else "disabled")
 

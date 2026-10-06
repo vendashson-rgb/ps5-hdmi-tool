@@ -263,19 +263,18 @@ versão decodificada do EMC, que não depende de tabela nenhuma). Campo novo
 "Firmware do EMC (ativo / backup)" na aba "Analisar arquivo" e no log da aba
 de hardware, nos 3 idiomas.
 
-## Implementado 2026-10-05/06: conversão via arquivo-base ("BGA")
+## Implementado 2026-10-05/06: conversão via arquivo-base
 
-Usuário trouxe o método usado num vídeo do canal BGA: em vez de aplicar o
-patch pontual nos bytes conhecidos (seletor de chip, bloco de pareamento,
-checksum, contador — método que já tínhamos), usa um **arquivo-base**
-(.bin completo de 2 MB de outro console, já configurado com o chip HDMI e a
-família de placa certos pra aquele modelo — ex. `EDM-040-J100-PANASONIC.BIN`
-pra uma EDM-04X, `BGA_EDM-051-PANASONIC-J104.BIN` pra uma EDM-05X) e só
-regrava nele o número de série do console lido, descartando o resto do
-conteúdo original do cliente.
+Em vez de aplicar o patch pontual nos bytes conhecidos (seletor de chip,
+bloco de pareamento, checksum, contador — método que já tínhamos), este
+método alternativo usa um **arquivo-base** (.bin completo de 2 MB de outro
+console, já configurado com o chip HDMI e a família de placa certos pra
+aquele modelo — ex. `EDM-040-J100-PANASONIC.BIN` pra uma EDM-04X,
+`EDM-051-PANASONIC-J104.BIN` pra uma EDM-05X) e só regrava nele o número de
+série do console lido, descartando o resto do conteúdo original do cliente.
 
-**Risco identificado antes de implementar**: o vídeo só reaproveita o
-número de série, não o MAC. Isso significa que vários consoles diferentes
+**Risco identificado antes de implementar**: a ideia original só reaproveita
+o número de série, não o MAC. Isso significa que vários consoles diferentes
 convertidos com o mesmo arquivo-base sairiam todos com o **mesmo endereço
 MAC** (LAN e Wi-Fi) — o arquivo-base tem um MAC fixo gravado nele. Isso
 gera conflito de rede real se dois desses consoles acabarem na mesma rede
@@ -317,40 +316,42 @@ o usuário escolhe manualmente o arquivo-base (diálogo de arquivo); aqui a
 escolha é **automática**, baseada na família de placa detectada no arquivo
 aberto (`NorInfo.board_family`, ex. `EDM-05X`).
 
-Os arquivos-base ficam empacotados dentro do próprio programa, em `bga/`
-(novo diretório de recurso, ao lado de `images/` e `drives/` — adicionado ao
-`datas` do `.spec` do PyInstaller pra ir junto no `.exe`). `gui._load_bga_donors()`
-varre `bga/*.bin` na inicialização, roda `parse_nor()` em cada um e monta o
-mapeamento `família -> caminho do arquivo` (`{"EDM-04X": .../EDM-040-J100-PANASONIC.BIN,
-"EDM-05X": .../BGA_EDM-051-PANASONIC-J104.BIN}` com os dois arquivos atuais).
+Os arquivos-base ficam empacotados dentro do próprio programa, em
+`donor_files/` (novo diretório de recurso, ao lado de `images/` e
+`drives/` — adicionado ao `datas` do `.spec` do PyInstaller pra ir junto no
+`.exe`). `gui._load_donor_files()` varre `donor_files/*.bin` na
+inicialização, roda `parse_nor()` em cada um e monta o mapeamento
+`família -> caminho do arquivo` (`{"EDM-04X": .../EDM-040-J100-PANASONIC.BIN,
+"EDM-05X": .../EDM-051-PANASONIC-J104.BIN}` com os dois arquivos atuais).
 Isso é deliberadamente genérico — qualquer arquivo-base novo colocado em
-`bga/` entra automaticamente no mapeamento pela família que ele mesmo
-reporta, sem precisar mexer no código pra cada família nova.
+`donor_files/` entra automaticamente no mapeamento pela família que ele
+mesmo reporta, sem precisar mexer no código pra cada família nova.
 
 Ao analisar um arquivo (`_analyze_file`), se a família detectada tiver um
-arquivo-base correspondente em `bga/`, o botão "Usar arquivo-base automático
-(BGA)" é habilitado e uma linha no log avisa qual arquivo seria usado. Ao
-clicar, mostra a mesma confirmação da aba de hardware (chip + família
+arquivo-base correspondente em `donor_files/`, o botão "Usar arquivo-base
+automático" é habilitado e uma linha no log avisa qual arquivo seria usado.
+Ao clicar, mostra a mesma confirmação da aba de hardware (chip + família
 detectados no arquivo-base) antes de rodar `apply_donor_identity()` e
 habilitar "Salvar NOR com patch..." (reaproveita o mesmo botão/fluxo de
 salvar que o patch pontual já usava).
 
 Testado (smoke test headless): abrindo o `EDM-051 NUVOTON ... REV. 1.5.BIN`
 real como "arquivo do cliente", família detectada `EDM-05X` bate com
-`BGA_EDM-051-PANASONIC-J104.BIN`, resultado confirmado com número de série,
+`EDM-051-PANASONIC-J104.BIN`, resultado confirmado com número de série,
 MAC e MAC Wi-Fi do cliente transplantados e chip/SKU do arquivo-base
 preservados.
 
-**Importante sobre os arquivos em `bga/`**: como esses dois `.bin` passam a
-ir junto no `.exe` publicado (empacotados via PyInstaller) e também no
-histórico do repositório no GitHub (público), os campos de número de série
-e MAC/MAC Wi-Fi **originais** dos dois arquivos-base foram zerados antes de
-versionar (`0x1C7200`, `0x1C7210`, `0x1C4020`, `0x1C73C0` -> tudo `0x00`).
-Isso não muda o comportamento em nada, porque `apply_donor_identity()`
-sempre sobrescreve esses mesmos 4 campos com os dados do console lido antes
-de usar o arquivo — os valores originais nunca chegam a ser usados. A troca
-só existe pra não publicar número de série/MAC reais de placas físicas
-("database/" já é ignorado no git por esse mesmo motivo, ver `.gitignore`).
+**Importante sobre os arquivos em `donor_files/`**: como esses dois `.bin`
+passam a ir junto no `.exe` publicado (empacotados via PyInstaller) e
+também no histórico do repositório no GitHub (público), os campos de
+número de série e MAC/MAC Wi-Fi **originais** dos dois arquivos-base foram
+zerados antes de versionar (`0x1C7200`, `0x1C7210`, `0x1C4020`, `0x1C73C0`
+-> tudo `0x00`). Isso não muda o comportamento em nada, porque
+`apply_donor_identity()` sempre sobrescreve esses mesmos 4 campos com os
+dados do console lido antes de usar o arquivo — os valores originais nunca
+chegam a ser usados. A troca só existe pra não publicar número de
+série/MAC reais de placas físicas ("database/" já é ignorado no git por
+esse mesmo motivo, ver `.gitignore`).
 
 ## Confirmado 2026-10-04: não existe bloco de config I2C fora do que já patcheamos
 

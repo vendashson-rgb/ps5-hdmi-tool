@@ -5,7 +5,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('images', 'images'), ('drives', 'drives'), ('bga', 'bga')],
+    datas=[('images', 'images'), ('drives', 'drives'), ('donor_files', 'donor_files')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
