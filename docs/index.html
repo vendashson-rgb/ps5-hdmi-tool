@@ -83,6 +83,9 @@
   }
   .btn-primary{background:var(--ok); color:#001b12}
   .btn-secondary{background:var(--panel); color:var(--fg)}
+  .btn-buy{background:#ffb020; color:#2b1b00}
+  .badge-buy{background:#2b1f0e; color:#ffcf63; border:1px solid #5c4a1d}
+  .shot-caption{text-align:center; color:var(--fg-muted); font-size:.85rem; margin:-10px 0 0}
   .credit{font-size:.85rem; color:var(--fg-muted); margin-top:10px}
   section{margin:40px 0}
   h2{font-size:1.3rem; color:#fff; border-bottom:1px solid var(--border); padding-bottom:8px}
@@ -114,6 +117,7 @@
     <a href="https://github.com/vendashson-rgb/ps5-hdmi-tool/blob/main/README.en.md">🇺🇸 English</a>
   </p>
   <div class="cta">
+    <a class="btn btn-buy" href="https://datzerogames.com.br/chip-ps5">🛒 Comprar o Interposer DatZero</a>
     <a class="btn btn-primary" href="https://github.com/vendashson-rgb/ps5-hdmi-tool/releases/latest">⬇️ Baixar instalador (.exe)</a>
     <a class="btn btn-secondary" href="https://github.com/vendashson-rgb/ps5-hdmi-tool">Ver código-fonte no GitHub</a>
   </div>
@@ -137,10 +141,39 @@
   <p>
     Esta ferramenta é o lado <strong>software</strong> da conversão. A troca
     física do chip (retrabalho/microssoldagem) é feita com o
-    <a href="https://github.com/vendashson-rgb/ps5-hdmi-tool/blob/main/docs/GUIA_INSTALACAO_INTERPOSER.md"><strong>Interposer DatZero</strong></a>
+    <a href="https://datzerogames.com.br/chip-ps5"><strong>Interposer DatZero</strong></a>
     — os dois são complementares: o Interposer resolve a parte elétrica/física
     do CI HDMI, e o PS5 HDMI Tool resolve a parte da NOR.
   </p>
+</section>
+
+<section>
+  <span class="badge badge-buy">🛒 Produto físico à venda</span>
+  <h2>Interposer DatZero — a peça física da conversão</h2>
+  <p>
+    O <strong>PS5 HDMI Tool é 100% gratuito</strong> e vai continuar sendo —
+    ele só resolve a parte da <strong>NOR</strong> (o software). Pra fazer a
+    troca de verdade do chip HDMI, a placa precisa do
+    <strong>Interposer DatZero</strong>: uma placa adaptadora pequena que
+    recebe o chip <strong>Nuvoton/Panasonic MN864739</strong> numa face e
+    solda na placa-mãe do PS5 com a pinagem compatível com o
+    <strong>Realtek RTD2175P</strong> original na outra — sem precisar
+    remapear trilha por trilha na mão.
+  </p>
+  <div class="grid">
+    <div>
+      <img class="shot" src="assets/interposer/base-rtd2175p.png" alt="Interposer DatZero - face de baixo, solda na placa-mae com pinagem compativel com o Realtek RTD2175P">
+      <p class="shot-caption">Face de baixo — solda na placa-mãe (pinagem Realtek RTD2175P)</p>
+    </div>
+    <div>
+      <img class="shot" src="assets/interposer/topo-mn864739.png" alt="Interposer DatZero - face de cima, recebe o chip Nuvoton/Panasonic MN864739">
+      <p class="shot-caption">Face de cima — recebe o chip Nuvoton MN864739</p>
+    </div>
+  </div>
+  <div class="cta" style="margin-top:22px">
+    <a class="btn btn-buy" href="https://datzerogames.com.br/chip-ps5">🛒 Comprar o Interposer DatZero</a>
+    <a class="btn btn-secondary" href="https://github.com/vendashson-rgb/ps5-hdmi-tool/blob/main/docs/GUIA_INSTALACAO_INTERPOSER.md">Ver guia de instalação</a>
+  </div>
 </section>
 
 <section>
@@ -189,7 +222,8 @@
 <footer>
   <p>
     Código aberto no <a href="https://github.com/vendashson-rgb/ps5-hdmi-tool">GitHub</a> ·
-    <a href="https://github.com/vendashson-rgb/ps5-hdmi-tool/blob/main/docs/GUIA_INSTALACAO_INTERPOSER.md">Guia do Interposer DatZero</a> ·
+    <a href="https://datzerogames.com.br/chip-ps5">Comprar o Interposer DatZero</a> ·
+    <a href="https://github.com/vendashson-rgb/ps5-hdmi-tool/blob/main/docs/GUIA_INSTALACAO_INTERPOSER.md">Guia de instalação</a> ·
     DatZero Foundation © 2026
   </p>
 </footer>
