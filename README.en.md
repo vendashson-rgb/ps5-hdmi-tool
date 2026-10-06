@@ -253,6 +253,14 @@ analyzes it right away (HDMI chip, MAC, CFI, etc.) and lets you preview and
 save a new file with the patch already applied — without touching any
 board.
 
+If the analyzed file is from a board family with a matching donor file
+available (e.g. EDM-04X, EDM-05X), the **"Use automatic donor file (BGA)"**
+button becomes enabled: the program already knows which donor file to use
+for that family, reuses the serial number and MAC addresses from the opened
+file, and writes them on top of the donor file automatically (same logic as
+the "Use donor file..." button in the hardware tab, except it picks the
+right donor file on its own instead of asking you to select one).
+
 ## "UART Reader" tab
 
 Captures the raw log from a USB-serial adapter connected to the board's

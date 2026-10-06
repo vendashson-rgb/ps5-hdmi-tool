@@ -243,6 +243,14 @@ Não depende do leitor CH341A conectado. Deixa escolher qualquer `.bin` de
 hora (chip HDMI, MAC, CFI, etc.) e permite pré-visualizar e salvar um novo
 arquivo já com o patch aplicado — sem tocar em nenhuma placa.
 
+Se o arquivo analisado for de uma família de placa com arquivo-base
+disponível (ex. EDM-04X, EDM-05X), o botão **"Usar arquivo-base automático
+(BGA)"** fica habilitado: o programa já sabe qual arquivo-base usar pra
+aquela família, reaproveita o número de série e os endereços MAC do arquivo
+aberto e grava por cima do arquivo-base automaticamente (mesma lógica do
+botão "Usar arquivo-base..." da aba de hardware, só que escolhendo o
+arquivo-base certo sozinho em vez de pedir pra você selecionar um).
+
 ## Aba "Leitor UART"
 
 Captura o log bruto de um adaptador USB-serial ligado nos pinos de debug da

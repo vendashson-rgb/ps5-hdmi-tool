@@ -139,6 +139,29 @@ DETECT_FAILED_SIZE = (260, 260)
 
 BACKUP_DIR = APP_DIR / "database" / "backups"
 
+BGA_DIR = BUNDLE_DIR / "bga"
+
+
+def _load_bga_donors() -> dict[str, pathlib.Path]:
+    """Mapeia familia de placa (ex. "EDM-05X") -> arquivo-base correspondente
+    em bga/, pra conversao automatica na aba de analise de arquivo. Qualquer
+    arquivo-base novo colocado em bga/ entra automaticamente no mapeamento,
+    sem precisar mexer no codigo."""
+    donors: dict[str, pathlib.Path] = {}
+    if not BGA_DIR.is_dir():
+        return donors
+    for path in sorted(BGA_DIR.glob("*.bin")):
+        try:
+            data = path.read_bytes()
+        except OSError:
+            continue
+        if len(data) != EXPECTED_SIZE:
+            continue
+        info = parse_nor(data)
+        if info.board_family:
+            donors.setdefault(info.board_family, path)
+    return donors
+
 CONFIRM_PHRASE = "GRAVAR"
 MIN_DETECT_DISPLAY_S = 1.2  # tempo minimo pra animacao de "detectando" aparecer na tela
 
@@ -174,6 +197,8 @@ class App(tk.Tk):
         self.file_dump: bytes | None = None
         self.file_info: NorInfo | None = None
         self.file_patch: PatchResult | None = None
+        self._file_donor_path: pathlib.Path | None = None
+        self.bga_donors = _load_bga_donors()
 
         self.uart: UartReader | None = None
         self.uart_connected = False
@@ -613,22 +638,35 @@ class App(tk.Tk):
         self.lblframe_file_patch = ttk.LabelFrame(parent, text=t("file.patch_frame_title"), padding=10)
         self.lblframe_file_patch.pack(fill="x", padx=10, pady=(0, 10))
 
-        self.lbl_file_target = ttk.Label(self.lblframe_file_patch, text=t("file.target_label"))
+        file_patch_row1 = ttk.Frame(self.lblframe_file_patch)
+        file_patch_row1.pack(fill="x")
+        self.lbl_file_target = ttk.Label(file_patch_row1, text=t("file.target_label"))
         self.lbl_file_target.pack(side="left")
         self.file_target_var = tk.StringVar(value=TARGET_NUVOTON)
         combo = ttk.Combobox(
-            self.lblframe_file_patch, textvariable=self.file_target_var, state="readonly", width=28,
+            file_patch_row1, textvariable=self.file_target_var, state="readonly", width=28,
             values=[TARGET_REALTEK, TARGET_NUVOTON]
         )
         combo.set(TARGET_NUVOTON)
         combo.pack(side="left", padx=8)
 
-        self.btn_file_preview = ttk.Button(self.lblframe_file_patch, text=t("common.btn_preview"),
+        self.btn_file_preview = ttk.Button(file_patch_row1, text=t("common.btn_preview"),
                                             command=self.on_file_preview, state="disabled")
         self.btn_file_preview.pack(side="left", padx=5)
 
+        file_patch_row2 = ttk.Frame(self.lblframe_file_patch)
+        file_patch_row2.pack(fill="x", pady=(8, 0))
+        self.lbl_file_donor_sep = ttk.Label(file_patch_row2, text=t("file.donor_sep_label"), foreground=FG_MUTED)
+        self.lbl_file_donor_sep.pack(side="left")
+        self.btn_file_donor = ttk.Button(
+            file_patch_row2, text=t("file.btn_donor"), command=self.on_file_use_donor, state="disabled"
+        )
+        self.btn_file_donor.pack(side="left", padx=8)
+
+        file_patch_row3 = ttk.Frame(self.lblframe_file_patch)
+        file_patch_row3.pack(fill="x", pady=(8, 0))
         self.btn_file_save = tk.Button(
-            self.lblframe_file_patch, text=t("file.btn_save"),
+            file_patch_row3, text=t("file.btn_save"),
             command=self.on_file_save, state="disabled",
             bg=BG_ALT, fg=FG, font=("Segoe UI", 9, "bold"),
             activebackground=BG_ACTIVE, activeforeground=FG,
@@ -667,6 +705,8 @@ class App(tk.Tk):
         self.lblframe_file_patch.configure(text=t("file.patch_frame_title"))
         self.lbl_file_target.configure(text=t("file.target_label"))
         self.btn_file_preview.configure(text=t("common.btn_preview"))
+        self.lbl_file_donor_sep.configure(text=t("file.donor_sep_label"))
+        self.btn_file_donor.configure(text=t("file.btn_donor"))
         self.btn_file_save.configure(text=t("file.btn_save"))
 
     def on_file_browse(self):
@@ -691,6 +731,10 @@ class App(tk.Tk):
         self.file_info = info
         self.file_patch = None
         self.btn_file_save.configure(state="disabled")
+
+        donor_path = self.bga_donors.get(info.board_family) if info.board_family else None
+        self._file_donor_path = donor_path
+        self.btn_file_donor.configure(state="normal" if donor_path is not None else "disabled")
 
         size_suffix = t("common.size_ok_suffix") if info.size_ok else t("common.size_bad_suffix")
         self.file_info_labels["size"].configure(text=f"{info.size} bytes{size_suffix}")
@@ -730,6 +774,10 @@ class App(tk.Tk):
             for w in info.warnings:
                 self.file_log(f"  - {w}", "warn")
 
+        if donor_path is not None:
+            self.file_log("")
+            self.file_log(t("file.log.donor_available", family=info.board_family, name=donor_path.name), "info")
+
         if info.size_ok:
             self.btn_file_preview.configure(state="normal")
         else:
@@ -759,6 +807,38 @@ class App(tk.Tk):
             self.file_log(t("file.log.checksum_stale"), "warn")
         else:
             self.file_log(t("file.log.checksum_resolved"), "ok")
+        self.file_log("=" * 60, "muted")
+        self.btn_file_save.configure(state="normal")
+
+    def on_file_use_donor(self):
+        if self.file_dump is None or self._file_donor_path is None:
+            return
+        donor_path = self._file_donor_path
+        try:
+            donor_data = donor_path.read_bytes()
+        except OSError as e:
+            messagebox.showerror(t("common.err_open_file_title"), str(e))
+            return
+
+        donor_info = parse_nor(donor_data)
+        proceed = messagebox.askyesno(
+            t("hw.donor_confirm_title"),
+            t("hw.donor_confirm_body", chip=donor_info.chip_name, family=donor_info.board_family or "?"),
+        )
+        if not proceed:
+            return
+
+        result = apply_donor_identity(donor_data, self.file_dump)
+        self.file_patch = result
+
+        self.file_log("=" * 60, "muted")
+        self.file_log(t("file.log.donor_title", path=donor_path), "patch")
+        for ch in result.changes:
+            self.file_log(
+                t("file.log.preview_change", offset=f"{ch.offset:06X}",
+                  old=ch.old.hex(' ').upper(), new=ch.new.hex(' ').upper(), desc=ch.description),
+                "patch"
+            )
         self.file_log("=" * 60, "muted")
         self.btn_file_save.configure(state="normal")
 
