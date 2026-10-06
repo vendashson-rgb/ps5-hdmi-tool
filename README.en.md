@@ -232,6 +232,14 @@ issues even without the visible console.
    patch — this also saves the already-converted result in the same
    console folder, as `REALTEK_FOR_NUVOTON.bin` (or
    `NUVOTON_FOR_REALTEK.bin`, depending on the conversion direction).
+4b. **"Use donor file..."** (next to step 3): an alternative for when you
+   already have a complete donor `.bin` file (2 MB) from another console,
+   already set up with the right HDMI chip and board family — the program
+   reuses the information from the console you just read (serial number and
+   MAC addresses) and writes it on top of the donor file, keeping the rest
+   of it as-is. It shows the detected chip/family from the donor file and
+   asks for confirmation before proceeding — check that they match what you
+   intend to install. Then just click "Write to NOR" as usual.
 5. To restore a previously saved backup (or any valid 2 MB `.bin`) back to
    the connected NOR, use the **"Restore backup from file..."** button — it
    asks for the file, confirms twice and writes it with the same 4-step

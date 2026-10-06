@@ -25,6 +25,14 @@ from i18n import t
 from nor_parser import (
     OFFSET_CHIP_SELECT,
     OFFSET_WIFI_REV_HINT,
+    OFFSET_MAC,
+    MAC_LEN,
+    OFFSET_WIFI_MAC,
+    WIFI_MAC_LEN,
+    OFFSET_MOBO_SERIAL,
+    MOBO_SERIAL_LEN,
+    OFFSET_BOARD_SERIAL,
+    BOARD_SERIAL_LEN,
     CHIP_REALTEK,
     CHIP_NUVOTON_PANASONIC,
 )
@@ -146,3 +154,37 @@ def apply_patch(original: bytes, target: str) -> PatchResult:
         checksum_left_stale = True
 
     return PatchResult(data=bytes(buf), changes=changes, checksum_left_stale=checksum_left_stale)
+
+
+def apply_donor_identity(donor: bytes, customer: bytes) -> PatchResult:
+    """Grava os dados de identidade do cliente (numeros de serie + MAC/MAC
+    Wi-Fi) por cima de um arquivo-base (NOR completa de outro console, ja
+    com o chip HDMI alvo e todos os outros campos corretos pra aquela
+    familia de placa -- ex. EDM-040-J100-PANASONIC.BIN).
+
+    O arquivo-base ja precisa ser uma NOR valida e completa pro chip e
+    familia de placa certos -- esta funcao NAO confere isso, so transplanta
+    os campos de identidade. Confira o chip/familia detectados no
+    arquivo-base (parse_nor) antes de gravar numa placa de cliente.
+
+    So carrega de volta o MAC/MAC Wi-Fi do cliente (alem do numero de
+    serie) pra evitar que varios consoles convertidos com o mesmo
+    arquivo-base saiam com o mesmo endereco MAC -- o que causaria conflito
+    de rede se dois desses consoles acabarem na mesma rede.
+    """
+    buf = bytearray(donor)
+    changes: list[PatchChange] = []
+
+    fields = [
+        (OFFSET_MOBO_SERIAL, MOBO_SERIAL_LEN, t("backend.patch.donor_mobo_serial")),
+        (OFFSET_BOARD_SERIAL, BOARD_SERIAL_LEN, t("backend.patch.donor_board_serial")),
+        (OFFSET_MAC, MAC_LEN, t("backend.patch.donor_mac")),
+        (OFFSET_WIFI_MAC, WIFI_MAC_LEN, t("backend.patch.donor_wifi_mac")),
+    ]
+    for offset, length, description in fields:
+        old = bytes(buf[offset:offset + length])
+        new = customer[offset:offset + length]
+        buf[offset:offset + length] = new
+        changes.append(PatchChange(offset, old, bytes(new), description))
+
+    return PatchResult(data=bytes(buf), changes=changes, checksum_left_stale=False)

@@ -263,6 +263,51 @@ versão decodificada do EMC, que não depende de tabela nenhuma). Campo novo
 "Firmware do EMC (ativo / backup)" na aba "Analisar arquivo" e no log da aba
 de hardware, nos 3 idiomas.
 
+## Implementado 2026-10-05/06: conversão via arquivo-base ("BGA")
+
+Usuário trouxe o método usado num vídeo do canal BGA: em vez de aplicar o
+patch pontual nos bytes conhecidos (seletor de chip, bloco de pareamento,
+checksum, contador — método que já tínhamos), usa um **arquivo-base**
+(.bin completo de 2 MB de outro console, já configurado com o chip HDMI e a
+família de placa certos pra aquele modelo — ex. `EDM-040-J100-PANASONIC.BIN`
+pra uma EDM-04X, `BGA_EDM-051-PANASONIC-J104.BIN` pra uma EDM-05X) e só
+regrava nele o número de série do console lido, descartando o resto do
+conteúdo original do cliente.
+
+**Risco identificado antes de implementar**: o vídeo só reaproveita o
+número de série, não o MAC. Isso significa que vários consoles diferentes
+convertidos com o mesmo arquivo-base sairiam todos com o **mesmo endereço
+MAC** (LAN e Wi-Fi) — o arquivo-base tem um MAC fixo gravado nele. Isso
+gera conflito de rede real se dois desses consoles acabarem na mesma rede
+Wi-Fi/roteador (endereço MAC duplicado é um problema de rede clássico, não
+é exagero). Perguntado ao usuário — decisão: reaproveitar o MAC também, não
+só o número de série.
+
+**Implementado** (`nor_patcher.apply_donor_identity()`): recebe o
+arquivo-base e o dump do console lido, copia o arquivo-base inteiro e
+regrava por cima dele, nos offsets já confirmados:
+- `0x1C7200` (16B) identificador da placa-mãe
+- `0x1C7210` (17B) número de série do console
+- `0x1C4020` (6B) MAC LAN
+- `0x1C73C0` (6B) MAC Wi-Fi
+
+Tudo o resto do arquivo-base (chip HDMI, SKU, região, firmware, checksum
+0x1C41FE-FF, etc.) fica exatamente como veio — a responsabilidade de o
+arquivo-base estar correto (chip e família certos) é de quem escolhe o
+arquivo, não do programa. Por isso a interface mostra o chip e a família
+detectados no arquivo-base (via `parse_nor()`) e pede confirmação explícita
+antes de prosseguir, pra reduzir risco de usar o arquivo errado numa placa
+de cliente.
+
+Testado com `EDM-044` como arquivo-base e `EDM-051` como "console lido"
+(pares reais que já tínhamos, só pra validar o mecanismo) — número de
+série e MAC transplantados corretamente, chip do arquivo-base preservado.
+
+Botão "Usar arquivo-base..." na aba de hardware, ao lado do fluxo de patch
+já existente (os dois continuam disponíveis — esse é um método alternativo,
+não substitui o patch pontual, que continua sendo a opção mais testada
+quando não se tem um arquivo-base disponível).
+
 ## Confirmado 2026-10-04: não existe bloco de config I2C fora do que já patcheamos
 
 Dúvida levantada: o CI HDMI (Realtek ou Nuvoton) se comunica com a Southbridge

@@ -40,7 +40,15 @@ from ch341_spi import CH341Error, CH341SPI
 from gif_anim import GifAnimation
 from i18n import LANGUAGES, get_language, set_language, t
 from nor_parser import CHIP_SLUG, EXPECTED_SIZE, NorInfo, compare_dumps, parse_nor
-from nor_patcher import PatchResult, TARGET_BYTE, TARGET_LABEL, TARGET_NUVOTON, TARGET_REALTEK, apply_patch
+from nor_patcher import (
+    PatchResult,
+    TARGET_BYTE,
+    TARGET_LABEL,
+    TARGET_NUVOTON,
+    TARGET_REALTEK,
+    apply_donor_identity,
+    apply_patch,
+)
 from uart_reader import (
     COMMON_BAUDRATES,
     DEFAULT_BAUDRATE,
@@ -349,19 +357,30 @@ class App(tk.Tk):
         self.lblframe_patch = ttk.LabelFrame(parent, text=t("hw.patch_frame_title"), padding=10)
         self.lblframe_patch.pack(fill="x", padx=10, pady=(5, 0))
 
-        self.lbl_target = ttk.Label(self.lblframe_patch, text=t("hw.target_label"))
+        patch_row1 = ttk.Frame(self.lblframe_patch)
+        patch_row1.pack(fill="x")
+        self.lbl_target = ttk.Label(patch_row1, text=t("hw.target_label"))
         self.lbl_target.pack(side="left")
         self.target_var = tk.StringVar(value=TARGET_NUVOTON)
         self.combo_target = ttk.Combobox(
-            self.lblframe_patch, textvariable=self.target_var, state="readonly", width=28,
+            patch_row1, textvariable=self.target_var, state="readonly", width=28,
             values=[TARGET_REALTEK, TARGET_NUVOTON]
         )
         self.combo_target.set(TARGET_NUVOTON)
         self.combo_target.pack(side="left", padx=8)
 
-        self.btn_preview = ttk.Button(self.lblframe_patch, text=t("common.btn_preview"),
+        self.btn_preview = ttk.Button(patch_row1, text=t("common.btn_preview"),
                                        command=self.on_preview, state="disabled")
         self.btn_preview.pack(side="left", padx=5)
+
+        patch_row2 = ttk.Frame(self.lblframe_patch)
+        patch_row2.pack(fill="x", pady=(8, 0))
+        self.lbl_donor_sep = ttk.Label(patch_row2, text=t("hw.donor_sep_label"), foreground=FG_MUTED)
+        self.lbl_donor_sep.pack(side="left")
+        self.btn_donor = ttk.Button(
+            patch_row2, text=t("hw.btn_donor"), command=self.on_use_donor_file, state="disabled"
+        )
+        self.btn_donor.pack(side="left", padx=8)
 
         write_frame = ttk.Frame(parent, padding=(10, 5))
         write_frame.pack(fill="x")
@@ -540,6 +559,8 @@ class App(tk.Tk):
         self.lblframe_patch.configure(text=t("hw.patch_frame_title"))
         self.lbl_target.configure(text=t("hw.target_label"))
         self.btn_preview.configure(text=t("common.btn_preview"))
+        self.lbl_donor_sep.configure(text=t("hw.donor_sep_label"))
+        self.btn_donor.configure(text=t("hw.btn_donor"))
         self.btn_write.configure(text=t("hw.btn_write"))
         self.btn_restore.configure(text=t("hw.btn_restore"))
         self.lblframe_write_progress.configure(text=t("hw.progress_frame_title"))
@@ -1609,6 +1630,7 @@ class App(tk.Tk):
         self.btn_read.configure(state="disabled")
         self.btn_detect.configure(state="disabled")
         self.btn_preview.configure(state="disabled")
+        self.btn_donor.configure(state="disabled")
         self.btn_write.configure(state="disabled")
         self.set_backup_badge(False, t("hw.backup_badge_reading"))
         self.set_status(t("status.reading_1"))
@@ -1705,6 +1727,7 @@ class App(tk.Tk):
         self.btn_detect.configure(state="normal")
         self.btn_read.configure(state="normal")
         self.btn_preview.configure(state="normal")
+        self.btn_donor.configure(state="normal")
         self.btn_write.configure(state="disabled")
 
     def _read_failed(self, err: str):
@@ -1750,6 +1773,59 @@ class App(tk.Tk):
         self.log("=" * 60, "muted")
         self.btn_write.configure(state="normal")
 
+    def on_use_donor_file(self):
+        if self.last_dump is None:
+            messagebox.showinfo(t("hw.no_nor_title"), t("hw.no_nor_body"))
+            return
+
+        path_str = filedialog.askopenfilename(
+            title=t("hw.donor_pick_title"),
+            filetypes=[(t("common.file_nor_filter"), "*.bin"), (t("common.file_all_filter"), "*.*")],
+        )
+        if not path_str:
+            return
+        donor_path = pathlib.Path(path_str)
+        donor_data = donor_path.read_bytes()
+
+        if len(donor_data) != EXPECTED_SIZE:
+            messagebox.showerror(
+                t("hw.donor_size_err_title"),
+                t("hw.donor_size_err_body", size=len(donor_data), expected=EXPECTED_SIZE),
+            )
+            return
+
+        donor_info = parse_nor(donor_data)
+        proceed = messagebox.askyesno(
+            t("hw.donor_confirm_title"),
+            t("hw.donor_confirm_body", chip=donor_info.chip_name, family=donor_info.board_family or "?"),
+        )
+        if not proceed:
+            return
+
+        result = apply_donor_identity(donor_data, self.last_dump)
+        self.last_patch = result
+
+        converted_path = None
+        if self.last_backup_path is not None:
+            to_slug = CHIP_SLUG.get(donor_info.chip_raw, f"CHIP0x{donor_info.chip_raw:02X}")
+            converted_path = self.last_backup_path.parent / f"ARQUIVO_BASE_{to_slug}.bin"
+            converted_path.write_bytes(result.data)
+
+        self._show_stage("preview")
+        self.log("=" * 60, "muted")
+        self.log(t("hw.log.donor_title", path=donor_path), "patch")
+        self.log(t("hw.log.donor_detected", chip=donor_info.chip_name, family=donor_info.board_family or "?"), "muted")
+        for ch in result.changes:
+            self.log(
+                t("hw.log.preview_change", offset=f"{ch.offset:06X}",
+                  old=ch.old.hex(' ').upper(), new=ch.new.hex(' ').upper(), desc=ch.description),
+                "patch"
+            )
+        if converted_path is not None:
+            self.log(t("hw.log.converted_saved", path=converted_path), "muted")
+        self.log("=" * 60, "muted")
+        self.btn_write.configure(state="normal")
+
     # -- Passo 4: gravar -----------------------------------------------------
     def on_write(self):
         self._show_stage("writing")
@@ -1784,6 +1860,7 @@ class App(tk.Tk):
         self.btn_detect.configure(state="disabled")
         self.btn_read.configure(state="disabled")
         self.btn_preview.configure(state="disabled")
+        self.btn_donor.configure(state="disabled")
         self.btn_write.configure(state="disabled")
         self.btn_restore.configure(state="disabled")
         self._reset_write_steps()
@@ -1887,6 +1964,7 @@ class App(tk.Tk):
         self.btn_detect.configure(state="normal")
         self.btn_read.configure(state="normal")
         self.btn_preview.configure(state="normal")
+        self.btn_donor.configure(state="normal")
         self.btn_write.configure(state="normal")
         self.btn_restore.configure(state="normal")
 
@@ -1933,6 +2011,7 @@ class App(tk.Tk):
         self.btn_detect.configure(state="disabled")
         self.btn_read.configure(state="disabled")
         self.btn_preview.configure(state="disabled")
+        self.btn_donor.configure(state="disabled")
         self.btn_write.configure(state="disabled")
         self.btn_restore.configure(state="disabled")
         self._reset_write_steps()

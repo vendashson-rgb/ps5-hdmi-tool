@@ -223,6 +223,14 @@ mesmo sem o console visível.
    conversão de chip HDMI — isso também salva o resultado já convertido na
    mesma pasta do console, como `REALTEK_FOR_NUVOTON.bin` (ou
    `NUVOTON_FOR_REALTEK.bin`, dependendo do sentido da conversão).
+4b. **"Usar arquivo-base..."** (ao lado do passo 3): alternativa pra quando
+   você já tem um arquivo-base `.bin` completo (2 MB) de outro console, já
+   configurado com o chip HDMI e a família de placa certos — o programa
+   reaproveita as informações do console que você acabou de ler (número de
+   série e endereços MAC) e grava por cima do arquivo-base, mantendo o
+   resto dele como está. Mostra o chip/família detectados no arquivo-base e
+   pede confirmação antes de prosseguir — confira se batem com o que você
+   pretende instalar. Depois é só clicar em "Gravar na NOR" normalmente.
 5. Para restaurar um backup salvo anteriormente (ou qualquer `.bin` de 2 MB
    válido) de volta na NOR conectada, use o botão **"Restaurar backup de
    arquivo..."** — ele pede o arquivo, confirma duas vezes e grava com a
