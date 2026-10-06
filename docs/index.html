@@ -102,6 +102,11 @@
   .keywords{color:var(--fg-muted); font-size:.85rem}
   footer{border-top:1px solid var(--border); padding:28px 0 48px; text-align:center; color:var(--fg-muted); font-size:.85rem}
   code{background:#1c1c1c; padding:2px 6px; border-radius:4px; font-size:.85em}
+  .badge-donate{background:#1f1033; color:#c9a6ff; border:1px solid #432a66}
+  .pix-box{display:flex; align-items:center; gap:10px; margin-top:10px; flex-wrap:wrap}
+  .pix-box code{font-size:1rem; padding:7px 12px}
+  .btn-copy{background:var(--bg-alt); color:var(--ok); border:1px solid var(--border); border-radius:6px; padding:7px 14px; font-size:.85rem; cursor:pointer; font-weight:600}
+  .btn-copy:hover{border-color:var(--ok)}
 </style>
 </head>
 <body>
@@ -221,15 +226,69 @@
   </p>
 </section>
 
+<section id="apoie">
+  <span class="badge badge-donate">💜 Apoie o projeto</span>
+  <h2>Apoie o projeto</h2>
+  <p>
+    O PS5 HDMI Tool é gratuito e vai continuar sendo. Se a ferramenta te
+    ajudou e você quiser retribuir, pode fazer uma doação via Pix ou
+    Payoneer — não é obrigatório, é só um jeito de apoiar quem mantém e
+    atualiza o projeto.
+  </p>
+  <div class="grid">
+    <div class="card">
+      <h3>Pix</h3>
+      <p>Beneficiário: <strong>Jefferson Honorio</strong></p>
+      <div class="pix-box">
+        <code id="pix-key">21977118946</code>
+        <button type="button" class="btn-copy" onclick="copyPix()">Copiar chave</button>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Payoneer</h3>
+      <p>Prefere Payoneer? Pode doar direto por este link:</p>
+      <a class="btn btn-secondary" href="https://link.payoneer.com/Token?t=9718DE818AED4124B003AFE6C7C047DD&amp;src=mobile" style="margin-top:6px">Doar via Payoneer</a>
+    </div>
+  </div>
+</section>
+
 <footer>
   <p>
     Código aberto no <a href="https://github.com/vendashson-rgb/ps5-hdmi-tool">GitHub</a> ·
     <a href="https://datzerogames.com.br/chip-ps5">Comprar o Interposer DatZero</a> ·
+    <a href="#apoie">Apoiar o projeto (Pix/Payoneer)</a> ·
     <a href="https://github.com/vendashson-rgb/ps5-hdmi-tool/blob/main/docs/GUIA_INSTALACAO_INTERPOSER.md">Guia de instalação</a> ·
     DatZero Foundation © 2026
   </p>
 </footer>
 
 </div>
+<script>
+function copyPix(){
+  var key = document.getElementById('pix-key').textContent;
+  var btn = document.querySelector('.btn-copy');
+  var original = btn.textContent;
+  function done(){
+    btn.textContent = 'Copiado!';
+    setTimeout(function(){ btn.textContent = original; }, 1800);
+  }
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(key).then(done).catch(function(){ fallbackCopyPix(key, done); });
+  } else {
+    fallbackCopyPix(key, done);
+  }
+}
+function fallbackCopyPix(text, cb){
+  var ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try{ document.execCommand('copy'); }catch(e){}
+  document.body.removeChild(ta);
+  if(cb) cb();
+}
+</script>
 </body>
 </html>
