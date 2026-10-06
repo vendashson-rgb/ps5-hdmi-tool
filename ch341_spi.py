@@ -59,6 +59,40 @@ READ_CHUNK = 2048  # confirmado com hardware real: 4096 falha, 2048 funciona de 
 
 STATUS_BUSY_BIT = 0x01
 
+# Codigo de fabricante JEDEC padrao da industria pra Winbond -- nao e algo
+# que estamos adivinhando, e o codigo oficial atribuido pela JEDEC.
+JEDEC_MANUF_WINBOND = 0xEF
+
+# Chips de flash SPI ja confirmados contra placas reais de PS5 neste
+# projeto (ver NOTES.md/README) -- EF 40 15 = W25Q16JV, 2097152 bytes (2
+# MB), a mesma em todas as amostras reais ja analisadas. NAO adivinhamos
+# capacidade/modelo de chips que nunca vimos; qualquer outro ID so e
+# reportado como "fabricante reconhecido, modelo nao confirmado" (se for
+# Winbond) ou "fabricante nao reconhecido".
+KNOWN_JEDEC_CHIPS: dict[bytes, tuple[str, int]] = {
+    bytes((0xEF, 0x40, 0x15)): ("W25Q16JV", 2 * 1024 * 1024),
+}
+
+
+def describe_jedec_id(jedec: bytes) -> tuple[str | None, str | None, int | None, bool]:
+    """Traduz o JEDEC ID bruto (3 bytes) numa identificacao do chip de
+    flash. Retorna (fabricante, modelo, tamanho_bytes, confirmado):
+    - Chip exato ja confirmado (Winbond W25Q16JV): os 4 campos preenchidos,
+      confirmado=True.
+    - Fabricante Winbond mas modelo diferente/desconhecido: so fabricante
+      preenchido, resto None, confirmado=False.
+    - Qualquer outro fabricante: tudo None, confirmado=False.
+    So retorna dado estruturado (sem texto pronto) pra quem exibir decidir
+    o idioma -- ver gui.py/_detect_done."""
+    jedec = bytes(jedec)
+    known = KNOWN_JEDEC_CHIPS.get(jedec)
+    if known:
+        name, size = known
+        return "Winbond", name, size, True
+    if jedec[:1] == bytes((JEDEC_MANUF_WINBOND,)):
+        return "Winbond", None, None, False
+    return None, None, None, False
+
 
 class CH341Error(Exception):
     pass

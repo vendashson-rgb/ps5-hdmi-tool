@@ -7,11 +7,19 @@ Fluxo:
      -> salva backup automatico em database/backups/<identificador>/<data-hora>.bin
      -> mostra: chip HDMI detectado, MAC, tamanho, dados brutos (id/CFI)
   3. Pre-visualizar patch (escolhe o chip alvo, mostra exatamente o que vai mudar,
-     SEM gravar nada ainda)
-  4. Gravar na NOR (so habilita depois de ter backup + preview feitos)
+     SEM gravar nada ainda) -- ou carregar um arquivo .bin externo (backup
+     antigo, ou arquivo convertido na aba "Analisar arquivo") pelo botao
+     "Carregar arquivo .bin para gravar...", que so mostra as informacoes do
+     arquivo, sem gravar nada ainda
+  4. Gravar na NOR -- habilita depois do preview/doador OU de carregar um
+     arquivo externo. Se nao houver backup feito nesta sessao, avisa o
+     usuario e oferece fazer um backup automatico (2 leituras) antes de
+     gravar, ja que sem backup a gravacao e irreversivel.
 
-  + Restaurar backup de arquivo (independente do fluxo acima, so precisa do
-    leitor detectado)
+  + Restaurar NOR a partir de Backup -- grava de volta o ultimo backup feito
+    nesta sessao (passo 2, ou o backup automatico oferecido no passo 4), com
+    a mesma confirmacao da gravacao normal. Avisa se ainda nao houver nenhum
+    backup feito.
 
 *** AVISO IMPORTANTE ***
 O campo 0x1C41FE-0x1C41FF e resolvido via tabela fixa (chip + REV Wi-Fi) --
@@ -26,7 +34,9 @@ from __future__ import annotations
 import os
 import pathlib
 import re
+import subprocess
 import sys
+import tempfile
 import threading
 import time
 import tkinter as tk
@@ -36,16 +46,23 @@ from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 
 from PIL import Image, ImageTk
 
-from ch341_spi import CH341Error, CH341SPI
+import updater
+from version import APP_VERSION
+from ch341_spi import CH341Error, CH341SPI, describe_jedec_id
 from gif_anim import GifAnimation
 from i18n import LANGUAGES, get_language, set_language, t
-from nor_parser import CHIP_SLUG, EXPECTED_SIZE, NorInfo, compare_dumps, parse_nor
+from nor_parser import CHIP_SLUG, EXPECTED_SIZE, NorInfo, compare_dumps, has_valid_nor_magic, is_blank, parse_nor
 from nor_patcher import (
     PatchResult,
     TARGET_BYTE,
     TARGET_LABEL,
     TARGET_NUVOTON,
     TARGET_REALTEK,
+    CONSOLE_TYPE_TARGET_KEY,
+    CONSOLE_TYPE_DIGITAL_TARGET,
+    CONSOLE_TYPE_DISK_TARGET,
+    CONSOLE_TYPE_SLIM_TARGET,
+    apply_console_type,
     apply_donor_identity,
     apply_patch,
 )
@@ -136,6 +153,8 @@ WRITE_SUCCESS_GIF = IMAGES_DIR / "write_success.gif"
 WRITE_SUCCESS_SIZE = (260, 260)
 DETECT_FAILED_GIF = IMAGES_DIR / "detect_failed.gif"
 DETECT_FAILED_SIZE = (260, 260)
+VERIFYING_FILE_GIF = IMAGES_DIR / "verifying_file.gif"
+VERIFYING_FILE_SIZE = (260, 260)
 
 BACKUP_DIR = APP_DIR / "database" / "backups"
 
@@ -193,6 +212,7 @@ class App(tk.Tk):
         self.last_dump: bytes | None = None
         self.last_backup_path: pathlib.Path | None = None
         self.last_patch: PatchResult | None = None
+        self._write_source = "patch"  # "patch" (leitura+patch, confere NOR antes) ou "restore" (arquivo externo carregado, sem conferencia previa)
 
         self.file_dump: bytes | None = None
         self.file_info: NorInfo | None = None
@@ -214,6 +234,7 @@ class App(tk.Tk):
         self._apply_dark_theme()
         self._build_widgets()
         self.protocol("WM_DELETE_WINDOW", self.on_close)
+        self.after(3000, self._start_update_check)
 
     # -- Idioma (bandeiras no canto superior direito) ------------------------
     def _build_language_switcher(self, parent):
@@ -425,6 +446,15 @@ class App(tk.Tk):
         )
         self.btn_restore.pack(side="left", padx=5, fill="x", expand=True)
 
+        self.btn_restore_from_backup = tk.Button(
+            write_frame, text=t("hw.btn_restore_from_backup"),
+            command=self.on_restore_from_backup, state="disabled",
+            bg=BG_ALT, fg=FG, font=("Segoe UI", 10, "bold"),
+            activebackground=BG_ACTIVE, activeforeground=FG,
+            relief="flat", highlightthickness=1, highlightbackground=BORDER,
+        )
+        self.btn_restore_from_backup.pack(side="left", padx=5, fill="x", expand=True)
+
         self.lblframe_write_progress = ttk.LabelFrame(parent, text=t("hw.progress_frame_title"), padding=(10, 5))
         self.lblframe_write_progress.pack(fill="x", padx=10, pady=(0, 5))
 
@@ -564,6 +594,15 @@ class App(tk.Tk):
             _stage_caption(self.detect_failed_frame, "stage.detect_failed")
             self.detect_failed_anim.pack()
 
+        self.verifying_file_frame = ttk.Frame(body_right)
+        self.verifying_file_anim = (
+            GifAnimation(self.verifying_file_frame, str(VERIFYING_FILE_GIF), size=VERIFYING_FILE_SIZE)
+            if VERIFYING_FILE_GIF.exists() else None
+        )
+        if self.verifying_file_anim is not None:
+            _stage_caption(self.verifying_file_frame, "stage.verifying_file")
+            self.verifying_file_anim.pack()
+
         self._stages = {
             "idle": (self.idle_frame, self.idle_anim, {"expand": True}),
             "detecting": (self.detecting_frame, self.detecting_anim, {"expand": True}),
@@ -575,6 +614,7 @@ class App(tk.Tk):
             "writing": (self.writing_frame, self.writing_anim, {"expand": True}),
             "writing_active": (self.writing_active_frame, self.writing_active_anim, {"expand": True}),
             "write_success": (self.write_success_frame, self.write_success_anim, {"expand": True}),
+            "verifying_file": (self.verifying_file_frame, self.verifying_file_anim, {"expand": True}),
         }
         self._show_stage("idle")
 
@@ -588,6 +628,7 @@ class App(tk.Tk):
         self.btn_donor.configure(text=t("hw.btn_donor"))
         self.btn_write.configure(text=t("hw.btn_write"))
         self.btn_restore.configure(text=t("hw.btn_restore"))
+        self.btn_restore_from_backup.configure(text=t("hw.btn_restore_from_backup"))
         self.lblframe_write_progress.configure(text=t("hw.progress_frame_title"))
         for step in self.write_steps.values():
             step["label"].configure(text=t(step["base_key"]))
@@ -619,6 +660,8 @@ class App(tk.Tk):
             ("board_serial", "file.field.board_serial"),
             ("raw_id", "file.field.raw_id"),
             ("board_family", "file.field.board_family"),
+            ("console_type", "file.field.console_type"),
+            ("idu_mode", "file.field.idu_mode"),
             ("region", "file.field.region"),
             ("cfi", "file.field.cfi"),
             ("fw_current", "file.field.fw_current"),
@@ -662,6 +705,31 @@ class App(tk.Tk):
             file_patch_row2, text=t("file.btn_donor"), command=self.on_file_use_donor, state="disabled"
         )
         self.btn_file_donor.pack(side="left", padx=8)
+
+        self.btn_file_donor_manual = ttk.Button(
+            file_patch_row2, text=t("file.btn_donor_manual"),
+            command=self.on_file_use_donor_manual, state="disabled"
+        )
+        self.btn_file_donor_manual.pack(side="left", padx=8)
+
+        self._console_type_order = [
+            CONSOLE_TYPE_DISK_TARGET, CONSOLE_TYPE_DIGITAL_TARGET, CONSOLE_TYPE_SLIM_TARGET
+        ]
+        file_patch_row2b = ttk.Frame(self.lblframe_file_patch)
+        file_patch_row2b.pack(fill="x", pady=(8, 0))
+        self.lbl_file_console_type = ttk.Label(file_patch_row2b, text=t("file.console_type_label"))
+        self.lbl_file_console_type.pack(side="left")
+        self.combo_file_console_type = ttk.Combobox(
+            file_patch_row2b, state="readonly", width=20,
+            values=[t(CONSOLE_TYPE_TARGET_KEY[k]) for k in self._console_type_order]
+        )
+        self.combo_file_console_type.current(1)  # padrao: Digital (caso de uso mais comum)
+        self.combo_file_console_type.pack(side="left", padx=8)
+        self.btn_file_console_type = ttk.Button(
+            file_patch_row2b, text=t("file.btn_console_type"),
+            command=self.on_file_convert_console_type, state="disabled"
+        )
+        self.btn_file_console_type.pack(side="left", padx=5)
 
         file_patch_row3 = ttk.Frame(self.lblframe_file_patch)
         file_patch_row3.pack(fill="x", pady=(8, 0))
@@ -707,6 +775,15 @@ class App(tk.Tk):
         self.btn_file_preview.configure(text=t("common.btn_preview"))
         self.lbl_file_donor_sep.configure(text=t("file.donor_sep_label"))
         self.btn_file_donor.configure(text=t("file.btn_donor"))
+        self.btn_file_donor_manual.configure(text=t("file.btn_donor_manual"))
+        self.lbl_file_console_type.configure(text=t("file.console_type_label"))
+        current_idx = self.combo_file_console_type.current()
+        self.combo_file_console_type.configure(
+            values=[t(CONSOLE_TYPE_TARGET_KEY[k]) for k in self._console_type_order]
+        )
+        if current_idx >= 0:
+            self.combo_file_console_type.current(current_idx)
+        self.btn_file_console_type.configure(text=t("file.btn_console_type"))
         self.btn_file_save.configure(text=t("file.btn_save"))
 
     def on_file_browse(self):
@@ -735,6 +812,8 @@ class App(tk.Tk):
         donor_path = self.donor_files.get(info.board_family) if info.board_family else None
         self._file_donor_path = donor_path
         self.btn_file_donor.configure(state="normal" if donor_path is not None else "disabled")
+        self.btn_file_donor_manual.configure(state="normal" if info.size_ok else "disabled")
+        self.btn_file_console_type.configure(state="normal" if info.size_ok else "disabled")
 
         size_suffix = t("common.size_ok_suffix") if info.size_ok else t("common.size_bad_suffix")
         self.file_info_labels["size"].configure(text=f"{info.size} bytes{size_suffix}")
@@ -750,6 +829,8 @@ class App(tk.Tk):
             f"{info.board_family} ({info.disc_drive})" if info.board_family else "--"
         )
         self.file_info_labels["board_family"].configure(text=board_family_text)
+        self.file_info_labels["console_type"].configure(text=info.console_type or "--")
+        self.file_info_labels["idu_mode"].configure(text=info.idu_mode or "--")
         self.file_info_labels["region"].configure(text=info.region or "--")
         self.file_info_labels["cfi"].configure(text=info.sku or info.cfi_code or "--")
         self.file_info_labels["fw_current"].configure(text=info.fw_current or "--")
@@ -777,6 +858,9 @@ class App(tk.Tk):
         if donor_path is not None:
             self.file_log("")
             self.file_log(t("file.log.donor_available", family=info.board_family, name=donor_path.name), "info")
+        elif info.board_family is None and info.size_ok:
+            self.file_log("")
+            self.file_log(t("file.log.donor_manual_hint"), "info")
 
         if info.size_ok:
             self.btn_file_preview.configure(state="normal")
@@ -833,6 +917,81 @@ class App(tk.Tk):
 
         self.file_log("=" * 60, "muted")
         self.file_log(t("file.log.donor_title", path=donor_path), "patch")
+        for ch in result.changes:
+            self.file_log(
+                t("file.log.preview_change", offset=f"{ch.offset:06X}",
+                  old=ch.old.hex(' ').upper(), new=ch.new.hex(' ').upper(), desc=ch.description),
+                "patch"
+            )
+        self.file_log("=" * 60, "muted")
+        self.btn_file_save.configure(state="normal")
+
+    def on_file_use_donor_manual(self):
+        if self.file_dump is None:
+            return
+        path_str = filedialog.askopenfilename(
+            title=t("hw.donor_pick_title"),
+            filetypes=[(t("common.file_nor_filter"), "*.bin"), (t("common.file_all_filter"), "*.*")],
+        )
+        if not path_str:
+            return
+        donor_path = pathlib.Path(path_str)
+        try:
+            donor_data = donor_path.read_bytes()
+        except OSError as e:
+            messagebox.showerror(t("common.err_open_file_title"), str(e))
+            return
+
+        if len(donor_data) != EXPECTED_SIZE:
+            messagebox.showerror(
+                t("hw.donor_size_err_title"),
+                t("hw.donor_size_err_body", size=len(donor_data), expected=EXPECTED_SIZE),
+            )
+            return
+
+        donor_info = parse_nor(donor_data)
+        proceed = messagebox.askyesno(
+            t("hw.donor_confirm_title"),
+            t("hw.donor_confirm_body", chip=donor_info.chip_name, family=donor_info.board_family or "?"),
+        )
+        if not proceed:
+            return
+
+        result = apply_donor_identity(donor_data, self.file_dump)
+        self.file_patch = result
+
+        self.file_log("=" * 60, "muted")
+        self.file_log(t("file.log.donor_title", path=donor_path), "patch")
+        for ch in result.changes:
+            self.file_log(
+                t("file.log.preview_change", offset=f"{ch.offset:06X}",
+                  old=ch.old.hex(' ').upper(), new=ch.new.hex(' ').upper(), desc=ch.description),
+                "patch"
+            )
+        self.file_log("=" * 60, "muted")
+        self.btn_file_save.configure(state="normal")
+
+    def on_file_convert_console_type(self):
+        if self.file_dump is None:
+            return
+        idx = self.combo_file_console_type.current()
+        if idx < 0:
+            return
+        target = self._console_type_order[idx]
+        target_label = t(CONSOLE_TYPE_TARGET_KEY[target])
+
+        proceed = messagebox.askyesno(
+            t("file.console_type_confirm_title"),
+            t("file.console_type_confirm_body", target=target_label),
+        )
+        if not proceed:
+            return
+
+        result = apply_console_type(self.file_dump, target)
+        self.file_patch = result
+
+        self.file_log("=" * 60, "muted")
+        self.file_log(t("file.log.console_type_title"), "patch")
         for ch in result.changes:
             self.file_log(
                 t("file.log.preview_change", offset=f"{ch.offset:06X}",
@@ -1693,9 +1852,17 @@ class App(tk.Tk):
     def _detect_done(self, jedec: bytes):
         self.set_status(t("status.reader_detected"))
         self.log(t("hw.log.reader_connected", jedec=jedec.hex(' ').upper()), "ok")
+        manuf, model, size, confirmed = describe_jedec_id(jedec)
+        if confirmed:
+            self.log(t("hw.log.chip_identified_ok", manuf=manuf, model=model, size=size), "ok")
+        elif manuf:
+            self.log(t("hw.log.chip_identified_warn_model", manuf=manuf), "warn")
+        else:
+            self.log(t("hw.log.chip_identified_warn_unknown"), "warn")
         self.btn_detect.configure(state="normal")
         self.btn_read.configure(state="normal")
         self.btn_restore.configure(state="normal")
+        self.btn_restore_from_backup.configure(state="normal")
 
     def _detect_failed(self, err: str):
         self._show_stage("detect_failed")
@@ -1734,6 +1901,13 @@ class App(tk.Tk):
                 self.after(0, lambda: self._read_mismatch(n_diff, first_offsets))
                 return
 
+            if is_blank(dump1):
+                self.after(0, self._read_invalid_blank)
+                return
+            if not has_valid_nor_magic(dump1):
+                self.after(0, self._read_invalid_bad_magic)
+                return
+
             info = parse_nor(dump1)
             backup_path = self._save_backup(dump1, dump2, info)
             self.after(0, lambda: self._read_done(dump1, info, backup_path))
@@ -1754,6 +1928,31 @@ class App(tk.Tk):
         (console_dir / "DUMP2.bin").write_bytes(dump2)
         return dump1_path
 
+    def _read_invalid_blank(self):
+        """A leitura foi consistente (duas leituras bateram) mas o conteudo
+        e 100% 0xFF -- quase sempre mau contato do leitor ou soquete vazio,
+        nao uma NOR de verdade apagada (um PS5 nao liga assim). Bloqueia
+        aqui em vez de deixar passar como leitura valida (ver NOTES.md)."""
+        self._show_stage("detect_failed")
+        self.set_status(t("status.read_invalid"))
+        self.set_backup_badge(False, t("hw.backup_badge_failed"))
+        self.log(t("hw.log.read_invalid_blank"), "error")
+        messagebox.showerror(t("hw.read_invalid_title"), t("hw.read_invalid_body_blank"))
+        self.btn_detect.configure(state="normal")
+        self.btn_read.configure(state="normal")
+
+    def _read_invalid_bad_magic(self):
+        """Leitura consistente, com dado (nao em branco), mas sem a
+        assinatura de NOR de PS5 no offset 0 -- NOR corrompida, chip errado
+        no soquete, ou nao e uma NOR de PS5."""
+        self._show_stage("detect_failed")
+        self.set_status(t("status.read_invalid"))
+        self.set_backup_badge(False, t("hw.backup_badge_failed"))
+        self.log(t("hw.log.read_invalid_bad_magic"), "error")
+        messagebox.showerror(t("hw.read_invalid_title"), t("hw.read_invalid_body_bad_magic"))
+        self.btn_detect.configure(state="normal")
+        self.btn_read.configure(state="normal")
+
     def _read_mismatch(self, n_diff: int, first_offsets: list[int]):
         self.set_status(t("status.read_mismatch"))
         self.set_backup_badge(False, t("hw.backup_badge_failed"))
@@ -1764,18 +1963,10 @@ class App(tk.Tk):
         self.btn_detect.configure(state="normal")
         self.btn_read.configure(state="normal")
 
-    def _read_done(self, dump: bytes, info: NorInfo, backup_path: pathlib.Path):
-        self._show_stage("read_success")
-        self.last_info = info
-        self.last_dump = dump
-        self.last_backup_path = backup_path
-        self.last_patch = None
-        self.set_status(t("status.read_success"))
-        self.set_backup_badge(True, t("hw.backup_badge_saved", name=backup_path.parent.name))
-        self.log("=" * 60, "muted")
-        self.log(t("hw.log.read_done"), "ok")
-        self.log(t("hw.log.dumps_saved", path=backup_path.parent), "muted")
-        self.log("")
+    def _log_full_info(self, info: NorInfo):
+        """Mostra no log todos os campos parseados da NOR -- usado tanto
+        depois de ler o chip de verdade (_read_done) quanto depois de
+        carregar um arquivo .bin externo pra gravar (_load_file_for_write)."""
         size_suffix = t("common.size_ok_suffix") if info.size_ok else t("common.size_bad_suffix")
         self.log(t("hw.log.size", size=info.size, suffix=size_suffix))
         self.log(t("hw.log.sha256", sha=info.sha256))
@@ -1803,12 +1994,28 @@ class App(tk.Tk):
             self.log(t("common.warnings_label"), "warn")
             for w in info.warnings:
                 self.log(f"  - {w}", "warn")
+
+    def _read_done(self, dump: bytes, info: NorInfo, backup_path: pathlib.Path):
+        self._show_stage("read_success")
+        self.last_info = info
+        self.last_dump = dump
+        self.last_backup_path = backup_path
+        self.last_patch = None
+        self._write_source = "patch"
+        self.set_status(t("status.read_success"))
+        self.set_backup_badge(True, t("hw.backup_badge_saved", name=backup_path.parent.name))
+        self.log("=" * 60, "muted")
+        self.log(t("hw.log.read_done"), "ok")
+        self.log(t("hw.log.dumps_saved", path=backup_path.parent), "muted")
+        self.log("")
+        self._log_full_info(info)
         self.log("=" * 60, "muted")
         self.btn_detect.configure(state="normal")
         self.btn_read.configure(state="normal")
         self.btn_preview.configure(state="normal")
         self.btn_donor.configure(state="normal")
         self.btn_write.configure(state="disabled")
+        self.btn_restore_from_backup.configure(state="normal")
 
     def _read_failed(self, err: str):
         self.set_status(t("status.read_failed"))
@@ -1913,6 +2120,75 @@ class App(tk.Tk):
             messagebox.showinfo(t("hw.preview_first_title"), t("hw.preview_first_body"))
             return
 
+        if self.last_backup_path is None:
+            make_backup = messagebox.askyesno(
+                t("hw.no_backup_title"),
+                t("hw.no_backup_body"),
+                icon="warning",
+            )
+            if make_backup:
+                self._show_stage("reading")
+                self.btn_write.configure(state="disabled")
+                self.btn_restore.configure(state="disabled")
+                self.btn_restore_from_backup.configure(state="disabled")
+                self.set_status(t("status.backup_before_write"))
+                self.log(t("hw.log.backup_before_write_start"), "info")
+                threading.Thread(target=self._backup_before_write_worker, daemon=True).start()
+                return
+
+        self._write_confirm_and_go()
+
+    def _backup_before_write_worker(self):
+        try:
+            with CH341SPI() as spi:
+                self.after(0, lambda: self.set_status(t("status.reading_1")))
+                dump1 = spi.read_all(EXPECTED_SIZE, progress_cb=self._progress_cb)
+                self.after(0, lambda: self.set_status(t("status.reading_2")))
+                dump2 = spi.read_all(EXPECTED_SIZE, progress_cb=self._progress_cb)
+
+            equal, n_diff, first_offsets = compare_dumps(dump1, dump2)
+            if not equal:
+                self.after(0, lambda: self._backup_before_write_mismatch(n_diff, first_offsets))
+                return
+
+            info = parse_nor(dump1)
+            backup_path = self._save_backup(dump1, dump2, info)
+            self.after(0, lambda: self._backup_before_write_done(backup_path))
+        except CH341Error as e:
+            err_msg = str(e)
+            self.after(0, lambda: self._backup_before_write_failed(err_msg))
+
+    def _backup_before_write_mismatch(self, n_diff: int, first_offsets: list[int]):
+        offs = ", ".join(f"0x{o:X}" for o in first_offsets)
+        self.log(t("hw.log.read_mismatch", n=n_diff, offs=offs), "error")
+        self.log(t("hw.log.read_mismatch_warn"), "warn")
+        messagebox.showwarning(t("hw.read_mismatch_title"), t("hw.read_mismatch_body"))
+        self._show_stage("idle")
+        self.set_status(t("status.waiting"))
+        self.btn_write.configure(state="normal")
+        self.btn_restore.configure(state="normal")
+        self.btn_restore_from_backup.configure(state="normal")
+
+    def _backup_before_write_done(self, backup_path: pathlib.Path):
+        self.last_backup_path = backup_path
+        self.set_backup_badge(True, t("hw.backup_badge_saved", name=backup_path.parent.name))
+        self.log(t("hw.log.backup_before_write_done", path=backup_path.parent), "ok")
+        self.btn_restore.configure(state="normal")
+        self.btn_restore_from_backup.configure(state="normal")
+        self._write_confirm_and_go()
+
+    def _backup_before_write_failed(self, err: str):
+        self.set_status(t("status.write_failed"))
+        self.log(t("hw.log.error_prefix", err=err), "error")
+        messagebox.showerror(t("hw.err_read_title"), err)
+        self._show_stage("idle")
+        self.set_status(t("status.waiting"))
+        self.btn_write.configure(state="normal")
+        self.btn_restore.configure(state="normal")
+        self.btn_restore_from_backup.configure(state="normal")
+
+    def _write_confirm_and_go(self):
+        self._show_stage("writing")
         if self.last_patch.checksum_left_stale:
             checksum_msg = t("hw.checksum_stale_confirm")
         else:
@@ -1943,17 +2219,26 @@ class App(tk.Tk):
         self.btn_donor.configure(state="disabled")
         self.btn_write.configure(state="disabled")
         self.btn_restore.configure(state="disabled")
+        self.btn_restore_from_backup.configure(state="disabled")
         self._reset_write_steps()
         self.set_status(t("status.writing"))
         threading.Thread(target=self._write_worker, daemon=True).start()
 
     def _write_worker(self):
-        self._flash_worker(
-            self.last_patch.data,
-            pre_check_against=self.last_dump,
-            pre_check_label=t("step.verify_before.status_patch"),
-            context="patch",
-        )
+        if self._write_source == "restore":
+            self._flash_worker(
+                self.last_patch.data,
+                pre_check_against=None,
+                pre_check_label=t("step.verify_before.status_restore"),
+                context="restore",
+            )
+        else:
+            self._flash_worker(
+                self.last_patch.data,
+                pre_check_against=self.last_dump,
+                pre_check_label=t("step.verify_before.status_patch"),
+                context="patch",
+            )
 
     def _flash_worker(self, data: bytes, pre_check_against: bytes | None,
                        pre_check_label: str, context: str):
@@ -2047,26 +2332,79 @@ class App(tk.Tk):
         self.btn_donor.configure(state="normal")
         self.btn_write.configure(state="normal")
         self.btn_restore.configure(state="normal")
+        self.btn_restore_from_backup.configure(state="normal")
 
-    # -- Restaurar backup de arquivo -----------------------------------------
+    # -- Gravar arquivo .bin na NOR -------------------------------------------
     def on_restore_backup(self):
         BACKUP_DIR.mkdir(parents=True, exist_ok=True)
         path_str = filedialog.askopenfilename(
             title=t("hw.restore_select_title"),
             initialdir=str(BACKUP_DIR),
-            filetypes=[(t("hw.restore_backup_filter"), "*.bin"), (t("common.file_all_filter"), "*.*")],
+            filetypes=[(t("hw.restore_backup_filter"), "*.bin")],
         )
         if not path_str:
             return
         path = pathlib.Path(path_str)
         data = path.read_bytes()
-        if len(data) != EXPECTED_SIZE:
+
+        self._show_stage("verifying_file")
+        self.set_status(t("status.verifying_file"))
+        self.btn_restore.configure(state="disabled")
+        threading.Thread(target=self._verify_file_worker, args=(path, data), daemon=True).start()
+
+    def _verify_file_worker(self, path: pathlib.Path, data: bytes):
+        start = time.monotonic()
+        size_ok = len(data) == EXPECTED_SIZE
+        magic_ok = size_ok and has_valid_nor_magic(data)
+        self._wait_min_display(start)
+        self.after(0, lambda: self._verify_file_done(path, data, size_ok, magic_ok))
+
+    def _verify_file_done(self, path: pathlib.Path, data: bytes, size_ok: bool, magic_ok: bool):
+        self.btn_restore.configure(state="normal")
+        if not size_ok:
+            self._show_stage("idle")
+            self.set_status(t("status.waiting"))
             messagebox.showerror(
                 t("hw.restore_invalid_title"),
                 t("hw.restore_invalid_body", size=len(data), expected=EXPECTED_SIZE)
             )
             return
+        if not magic_ok:
+            # TODO: trocar por uma animacao dedicada de "arquivo invalido"
+            # quando ela for adicionada (ver NOTES.md).
+            self._show_stage("idle")
+            self.set_status(t("status.waiting"))
+            self.log(t("hw.log.restore_not_ps5", path=path), "error")
+            messagebox.showerror(t("hw.restore_not_ps5_title"), t("hw.restore_not_ps5_body"))
+            return
+        self._load_file_for_write(path, data)
 
+    def _load_file_for_write(self, path: pathlib.Path, data: bytes):
+        """So carrega o arquivo e mostra as informacoes dele -- NAO grava
+        nada ainda. A gravacao em si so acontece quando o usuario clicar no
+        passo 4 (GRAVAR NA NOR), igual ao fluxo de ler+pre-visualizar."""
+        info = parse_nor(data)
+        self.last_info = info
+        self.last_dump = data
+        self.last_patch = PatchResult(data=data, changes=[], checksum_left_stale=False)
+        self._write_source = "restore"
+        self._show_stage("read_success")
+        self.set_status(t("status.file_loaded"))
+        self.log("=" * 60, "muted")
+        self.log(t("hw.log.file_loaded_title", path=path), "ok")
+        self.log("")
+        self._log_full_info(info)
+        self.log("=" * 60, "muted")
+        self.btn_write.configure(state="normal")
+
+    def on_restore_from_backup(self):
+        if self.last_backup_path is None or not self.last_backup_path.exists():
+            messagebox.showwarning(t("hw.no_backup_warn_title"), t("hw.no_backup_warn_body"))
+            return
+        data = self.last_backup_path.read_bytes()
+        self._proceed_restore(self.last_backup_path, data)
+
+    def _proceed_restore(self, path: pathlib.Path, data: bytes):
         self._show_stage("writing")
         proceed = messagebox.askyesno(
             t("hw.confirm_restore_title"),
@@ -2094,6 +2432,7 @@ class App(tk.Tk):
         self.btn_donor.configure(state="disabled")
         self.btn_write.configure(state="disabled")
         self.btn_restore.configure(state="disabled")
+        self.btn_restore_from_backup.configure(state="disabled")
         self._reset_write_steps()
         self.set_status(t("status.restoring"))
         self.log("=" * 60, "muted")
@@ -2107,6 +2446,87 @@ class App(tk.Tk):
             pre_check_label=t("step.verify_before.status_restore"),
             context="restore",
         )
+
+    # -- Atualizacao automatica (GitHub Releases) ----------------------------
+    def _start_update_check(self):
+        """Checa se tem versao nova no GitHub, numa thread separada -- so
+        1 chamada de rede, alguns segundos depois do programa abrir, pra
+        nao competir com o resto do arranque. Falha silenciosa (sem
+        internet, GitHub fora do ar, etc.) -- ver updater.check_for_update."""
+        threading.Thread(target=self._update_check_worker, daemon=True).start()
+
+    def _update_check_worker(self):
+        info = updater.check_for_update()
+        if info is not None:
+            self.after(0, lambda: self._update_available(info))
+
+    def _update_available(self, info: "updater.UpdateInfo"):
+        proceed = messagebox.askyesno(
+            t("update.available_title"),
+            t("update.available_body", version=info.version, current=APP_VERSION),
+        )
+        if not proceed:
+            self.log(t("update.log.declined", version=info.version), "muted")
+            return
+        self._download_update(info)
+
+    def _download_update(self, info: "updater.UpdateInfo"):
+        dialog = tk.Toplevel(self)
+        dialog.title(t("update.downloading_title"))
+        dialog.configure(bg=BG)
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.protocol("WM_DELETE_WINDOW", lambda: None)
+
+        ttk.Label(dialog, text=t("update.downloading_body", version=info.version),
+                  padding=(16, 16, 16, 8)).pack()
+        bar = ttk.Progressbar(dialog, mode="determinate", length=320)
+        bar.pack(padx=20, pady=(0, 8))
+        status_lbl = ttk.Label(dialog, text="", padding=(16, 0, 16, 16))
+        status_lbl.pack()
+        dialog.update_idletasks()
+        x = self.winfo_rootx() + (self.winfo_width() - dialog.winfo_width()) // 2
+        y = self.winfo_rooty() + (self.winfo_height() - dialog.winfo_height()) // 2
+        dialog.geometry(f"+{x}+{y}")
+
+        dest_path = pathlib.Path(tempfile.gettempdir()) / "PS5_HDMI_Tool_Setup_update.exe"
+
+        def progress_cb(done, total):
+            self.after(0, lambda: self._update_progress(bar, status_lbl, done, total))
+
+        def worker():
+            try:
+                updater.download_update(info, str(dest_path), progress_cb=progress_cb)
+                self.after(0, lambda: self._update_downloaded(dialog, dest_path))
+            except Exception as e:
+                err_msg = str(e)
+                self.after(0, lambda: self._update_download_failed(dialog, err_msg))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _update_progress(self, bar: ttk.Progressbar, status_lbl: ttk.Label, done: int, total: int):
+        if total:
+            bar.configure(mode="determinate", maximum=total, value=done)
+            status_lbl.configure(text=t("update.progress_kb", done=done // 1024, total=total // 1024))
+        else:
+            bar.configure(mode="indeterminate")
+
+    def _update_downloaded(self, dialog: tk.Toplevel, installer_path: pathlib.Path):
+        dialog.destroy()
+        messagebox.showinfo(t("update.ready_title"), t("update.ready_body"))
+        try:
+            subprocess.Popen([str(installer_path)], close_fds=True)
+        except OSError as e:
+            messagebox.showerror(t("update.launch_err_title"),
+                                  t("update.launch_err_body", err=str(e), url=updater.RELEASES_PAGE_URL))
+            return
+        self.destroy()
+        sys.exit(0)
+
+    def _update_download_failed(self, dialog: tk.Toplevel, err: str):
+        dialog.destroy()
+        messagebox.showerror(t("update.download_err_title"), t("update.download_err_body", err=err))
 
 
 if __name__ == "__main__":

@@ -35,6 +35,11 @@ from nor_parser import (
     BOARD_SERIAL_LEN,
     CHIP_REALTEK,
     CHIP_NUVOTON_PANASONIC,
+    OFFSET_CONSOLE_TYPE,
+    CONSOLE_TYPE_LEN,
+    CONSOLE_TYPE_SLIM,
+    CONSOLE_TYPE_DISK,
+    CONSOLE_TYPE_DIGITAL,
 )
 
 OFFSET_ZERO_BLOCK_1 = 0x1C40C6
@@ -171,20 +176,70 @@ def apply_donor_identity(donor: bytes, customer: bytes) -> PatchResult:
     serie) pra evitar que varios consoles convertidos com o mesmo
     arquivo-base saiam com o mesmo endereco MAC -- o que causaria conflito
     de rede se dois desses consoles acabarem na mesma rede.
+
+    Se o campo correspondente no console lido estiver em branco (0xFF --
+    NOR corrompida/leitura falhou, ver nor_parser.is_blank()), NAO
+    sobrescreve: mantem o valor que ja veio no arquivo-base, em vez de
+    gravar lixo por cima de um dado bom. Isso permite "regenerar" uma NOR
+    corrompida/em branco usando so o arquivo-base, mesmo sem nenhum dado
+    de identidade aproveitavel do console original.
     """
     buf = bytearray(donor)
     changes: list[PatchChange] = []
 
     fields = [
-        (OFFSET_MOBO_SERIAL, MOBO_SERIAL_LEN, t("backend.patch.donor_mobo_serial")),
-        (OFFSET_BOARD_SERIAL, BOARD_SERIAL_LEN, t("backend.patch.donor_board_serial")),
-        (OFFSET_MAC, MAC_LEN, t("backend.patch.donor_mac")),
-        (OFFSET_WIFI_MAC, WIFI_MAC_LEN, t("backend.patch.donor_wifi_mac")),
+        (OFFSET_MOBO_SERIAL, MOBO_SERIAL_LEN,
+         t("backend.patch.donor_mobo_serial"), t("backend.patch.donor_mobo_serial_kept")),
+        (OFFSET_BOARD_SERIAL, BOARD_SERIAL_LEN,
+         t("backend.patch.donor_board_serial"), t("backend.patch.donor_board_serial_kept")),
+        (OFFSET_MAC, MAC_LEN,
+         t("backend.patch.donor_mac"), t("backend.patch.donor_mac_kept")),
+        (OFFSET_WIFI_MAC, WIFI_MAC_LEN,
+         t("backend.patch.donor_wifi_mac"), t("backend.patch.donor_wifi_mac_kept")),
     ]
-    for offset, length, description in fields:
+    for offset, length, description, kept_description in fields:
         old = bytes(buf[offset:offset + length])
         new = customer[offset:offset + length]
+        if new.count(0xFF) == length:
+            changes.append(PatchChange(offset, old, old, kept_description))
+            continue
         buf[offset:offset + length] = new
         changes.append(PatchChange(offset, old, bytes(new), description))
 
     return PatchResult(data=bytes(buf), changes=changes, checksum_left_stale=False)
+
+
+CONSOLE_TYPE_SLIM_TARGET = "slim"
+CONSOLE_TYPE_DISK_TARGET = "disk"
+CONSOLE_TYPE_DIGITAL_TARGET = "digital"
+
+CONSOLE_TYPE_TARGET_BYTES = {
+    CONSOLE_TYPE_SLIM_TARGET: CONSOLE_TYPE_SLIM,
+    CONSOLE_TYPE_DISK_TARGET: CONSOLE_TYPE_DISK,
+    CONSOLE_TYPE_DIGITAL_TARGET: CONSOLE_TYPE_DIGITAL,
+}
+CONSOLE_TYPE_TARGET_KEY = {
+    CONSOLE_TYPE_SLIM_TARGET: "backend.parser.console_type_slim",
+    CONSOLE_TYPE_DISK_TARGET: "backend.parser.console_type_disk",
+    CONSOLE_TYPE_DIGITAL_TARGET: "backend.parser.console_type_digital",
+}
+
+
+def apply_console_type(original: bytes, target: str) -> PatchResult:
+    """Grava o campo "Tipo de console" (Disco/Digital/Slim Edition), 4 bytes
+    em 0x1C7010 -- mesmo campo que o Console Service Tool le e grava (ver
+    NOTES.md pra origem/validacao do offset). E so esse campo: nao depende
+    de nenhum checksum, ao contrario do patch de chip HDMI.
+    """
+    if target not in CONSOLE_TYPE_TARGET_BYTES:
+        raise ValueError(f"Alvo invalido: {target!r} (use {list(CONSOLE_TYPE_TARGET_BYTES)})")
+
+    buf = bytearray(original)
+    old = bytes(buf[OFFSET_CONSOLE_TYPE:OFFSET_CONSOLE_TYPE + CONSOLE_TYPE_LEN])
+    new = CONSOLE_TYPE_TARGET_BYTES[target]
+    buf[OFFSET_CONSOLE_TYPE:OFFSET_CONSOLE_TYPE + CONSOLE_TYPE_LEN] = new
+    change = PatchChange(
+        OFFSET_CONSOLE_TYPE, old, new,
+        t("backend.patch.console_type", target=t(CONSOLE_TYPE_TARGET_KEY[target]))
+    )
+    return PatchResult(data=bytes(buf), changes=[change], checksum_left_stale=False)

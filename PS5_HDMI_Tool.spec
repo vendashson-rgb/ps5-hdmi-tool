@@ -16,19 +16,24 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
+# Modo "onedir" (pasta), nao "onefile" -- um .exe sozinho precisa
+# descompactar tudo numa pasta temporaria TODA vez que abre, o que deixava
+# o programa demorando varios segundos so pra aparecer a janela. Em pasta,
+# o .exe roda direto dos arquivos já extraídos (o instalador Inno Setup
+# copia a pasta inteira), sem esse passo a cada abertura. upx=False pelo
+# mesmo motivo -- UPX comprime o .exe no disco, mas tem que descomprimir
+# ele na memoria toda vez que abre, e tambem dispara falso-positivo em
+# alguns antivirus.
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name='PS5_HDMI_Tool',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
+    upx=False,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -37,4 +42,14 @@ exe = EXE(
     entitlements_file=None,
     icon=['images/icon.ico'],
     version='version_info.txt',
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name='PS5_HDMI_Tool',
 )

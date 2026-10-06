@@ -20,6 +20,21 @@ from i18n import t
 
 EXPECTED_SIZE = 0x200000  # 2 MB -- W25Q16JV e equivalentes
 
+# Assinatura fixa nos primeiros 32 bytes de toda NOR de PS5 (offset 0).
+# Confirmada nas nossas 8 amostras reais com dado (as 3 em branco/corrompidas
+# nao tem) e no codigo-fonte do Console Service Tool (NorHeader.Magic, ver
+# NOTES.md). Tamanho certo (2 MB) sozinho nao basta pra confirmar que um
+# arquivo e uma NOR de PS5 -- qualquer binario de 2 MB passaria nesse teste;
+# a assinatura e o que realmente distingue.
+NOR_MAGIC = b"SONY COMPUTER ENTERTAINMENT INC."
+NOR_MAGIC_LEN = len(NOR_MAGIC)
+
+
+def has_valid_nor_magic(data: bytes) -> bool:
+    """True se o arquivo comeca com a assinatura de uma NOR de PS5 valida."""
+    return data[:NOR_MAGIC_LEN] == NOR_MAGIC
+
+
 OFFSET_CHIP_SELECT = 0x1C4062
 CHIP_REALTEK = 0x01
 CHIP_NUVOTON_PANASONIC = 0xFF
@@ -86,6 +101,29 @@ WIFI_MAC_LEN = 6
 OFFSET_FW_CURRENT = 0x1C8C30
 FW_LEN = 8
 
+# "Tipo de console" (Disco/Digital/Slim Edition) e "modo IDU" (unidade de
+# demonstracao de loja). Offsets obtidos decompilando o Console Service Tool
+# (ConsoleServiceTool.Console.Sony.Shared.Nvs/ConsoleType/
+# InterfaceDemonstrationUnit) e validados batendo exatamente contra todas as
+# nossas amostras reais -- inclusive contra o valor "Disk" mostrado pelo
+# proprio Console Service Tool pro arquivo EDM-O33 (print do usuario,
+# 2026-10-06). 4 bytes, ordem big-endian; valor 0xFFFFFFFF = bloco em
+# branco/nao programado.
+OFFSET_CONSOLE_TYPE = 0x1C7010
+CONSOLE_TYPE_LEN = 4
+CONSOLE_TYPE_SLIM = bytes.fromhex("22010101")
+CONSOLE_TYPE_DISK = bytes.fromhex("22020101")
+CONSOLE_TYPE_DIGITAL = bytes.fromhex("22030101")
+_CONSOLE_TYPE_NAMES = {
+    CONSOLE_TYPE_SLIM: "backend.parser.console_type_slim",
+    CONSOLE_TYPE_DISK: "backend.parser.console_type_disk",
+    CONSOLE_TYPE_DIGITAL: "backend.parser.console_type_digital",
+}
+
+OFFSET_IDU_MODE = 0x1C9600
+IDU_DISABLED = 0xFF
+IDU_ENABLED = 0x01
+
 OFFSET_ACT_SLOT = 0x001000
 OFFSET_EMC_IPL_A = 0x004000
 OFFSET_EMC_IPL_B = 0x082000
@@ -136,6 +174,8 @@ class NorInfo:
     act_slot: str | None
     emc_version_active: str | None
     emc_version_backup: str | None
+    console_type: str | None
+    idu_mode: str | None
     warnings: list[str] = field(default_factory=list)
 
 
@@ -285,6 +325,24 @@ def extract_fw_current(data: bytes) -> str | None:
     return ".".join(f"{b:02X}" for b in rev)
 
 
+def extract_console_type(data: bytes) -> str | None:
+    """Tipo de console (Disco/Digital/Slim Edition), 4 bytes big-endian em
+    0x1C7010. Ver comentario do offset acima pra origem/validacao."""
+    chunk = bytes(data[OFFSET_CONSOLE_TYPE:OFFSET_CONSOLE_TYPE + CONSOLE_TYPE_LEN])
+    key = _CONSOLE_TYPE_NAMES.get(chunk)
+    return t(key) if key else None
+
+
+def extract_idu_mode(data: bytes) -> str | None:
+    """Modo IDU (unidade de demonstracao de loja), 1 byte em 0x1C9600."""
+    raw = data[OFFSET_IDU_MODE]
+    if raw == IDU_DISABLED:
+        return t("backend.parser.idu_disabled")
+    if raw == IDU_ENABLED:
+        return t("backend.parser.idu_enabled")
+    return None
+
+
 def extract_act_slot(data: bytes) -> str:
     return "A" if data[OFFSET_ACT_SLOT] == 0x00 else "B"
 
@@ -354,6 +412,8 @@ def parse_nor(data: bytes) -> NorInfo:
     region = extract_region(data) if size >= OFFSET_REGION + REGION_LEN else None
     wifi_mac = extract_wifi_mac(data) if size >= OFFSET_WIFI_MAC + WIFI_MAC_LEN else None
     fw_current = extract_fw_current(data) if size >= OFFSET_FW_CURRENT + FW_LEN else None
+    console_type = extract_console_type(data) if size >= OFFSET_CONSOLE_TYPE + CONSOLE_TYPE_LEN else None
+    idu_mode = extract_idu_mode(data) if size >= OFFSET_IDU_MODE + 1 else None
 
     act_slot = extract_act_slot(data) if size >= OFFSET_ACT_SLOT + 1 else None
     emc_a = extract_emc_version(data, OFFSET_EMC_IPL_A) if size >= OFFSET_EMC_IPL_A + EMC_IPL_LEN else None
@@ -386,6 +446,8 @@ def parse_nor(data: bytes) -> NorInfo:
         act_slot=act_slot,
         emc_version_active=emc_version_active,
         emc_version_backup=emc_version_backup,
+        console_type=console_type,
+        idu_mode=idu_mode,
         warnings=warnings,
     )
 

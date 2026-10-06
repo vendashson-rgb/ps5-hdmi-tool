@@ -13,7 +13,7 @@
 ; Build: "C:\Users\O Honorio\AppData\Local\Programs\Inno Setup 6\ISCC.exe" installer.iss
 
 #define MyAppName "PS5 HDMI Tool"
-#define MyAppVersion "1.0.7"
+#define MyAppVersion "1.0.16"
 #define MyAppExeName "PS5_HDMI_Tool.exe"
 #define MyAppPublisher "DatZero Foundation"
 #define MyAppURL "https://datzerogames.com.br/"
@@ -42,7 +42,7 @@ SetupIconFile=images\icon.ico
 WizardStyle=modern
 UninstallDisplayIcon={app}\{#MyAppExeName}
 ; Informacoes do proprio arquivo Setup.exe (aba Detalhes nas Propriedades dele).
-VersionInfoVersion=1.0.7.0
+VersionInfoVersion=1.0.16.0
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription=Instalador do {#MyAppName}
 VersionInfoProductName={#MyAppName}
@@ -52,7 +52,11 @@ VersionInfoCopyright=Copyright (C) 2026 {#MyAppPublisher}
 Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
 
 [Files]
-Source: "dist\PS5_HDMI_Tool.exe"; DestDir: "{app}"; Flags: ignoreversion
+; Build "onedir" (pasta, nao .exe unico) -- copia a pasta inteira gerada
+; pelo PyInstaller. Isso faz o programa abrir muito mais rapido, porque um
+; .exe unico ("onefile") tem que se descompactar numa pasta temporaria
+; toda vez que abre; em pasta, ele roda direto, sem esse passo.
+Source: "dist\PS5_HDMI_Tool\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 Source: "drives\*"; DestDir: "{app}\drives"; Flags: ignoreversion recursesubdirs
 
 [Icons]

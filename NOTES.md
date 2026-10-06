@@ -521,3 +521,450 @@ direto e também pela aba "Analisar arquivo .bin" da interface): os 8
 arquivos com dado real continuam identificando exatamente igual a antes
 (nenhuma regressão); os 3 arquivos em branco agora mostram o aviso claro
 em vez da família quebrada `"EDM-0255X"` com chip "Nuvoton" enganoso.
+
+## Implementado 2026-10-06: "Regenerar com arquivo-base..." (manual) na aba "Analisar arquivo .bin" + correção no transplante de identidade
+
+Consequência direta do diagnóstico acima: pra um arquivo totalmente em
+branco (como os EDM-010/020 do usuário), a família da placa não dá pra
+detectar automaticamente — não tem dado nenhum no arquivo pra isso. Então
+o botão automático ("Usar arquivo-base automático") nunca vai habilitar
+pra esses casos, por mais arquivos-base que a gente adicione em
+`donor_files/`.
+
+**Novo botão** `btn_file_donor_manual` ("Regenerar com arquivo-base..."),
+na aba de análise de arquivo, ao lado do automático. Fica habilitado
+sempre que o arquivo carregado tem o tamanho certo (2 MB), independente de
+ter identificado a família ou não — é o mesmo diálogo manual de escolher
+arquivo-base que já existia na aba de hardware (`on_use_donor_file`), só
+que aplicado em cima de um arquivo já aberto em vez de uma leitura de
+hardware. Pensado pro caso em que o técnico sabe o modelo da placa pela
+etiqueta física (silkscreen) mesmo quando o dump não tem esse dado pra
+extrair sozinho. Quando a família não é detectada, um aviso no log aponta
+pra esse botão.
+
+**Bug real encontrado e corrigido em `nor_patcher.apply_donor_identity()`**:
+antes, os 4 campos de identidade (serial placa-mãe, serial console, MAC,
+MAC Wi-Fi) eram sempre copiados do "console lido" pro arquivo-base, sem
+checar se esse dado era válido. Com um console lido totalmente em branco
+(`0xFF`), isso apagava os campos BONS que já vinham no arquivo-base,
+substituindo por lixo `0xFF` — o oposto do que "regenerar" deveria fazer.
+Corrigido: agora, se o campo correspondente no console lido está em branco
+(`new.count(0xFF) == length`), o campo NÃO é sobrescrito — mantém o valor
+que já estava no arquivo-base, e o log mostra isso explicitamente
+("mantido do arquivo-base (console lido não tinha esse dado -- bloco em
+branco)") em vez de fingir que fez um transplante que não aconteceu.
+
+Testado: `EDM-010 ... DISCO.bin` (100% em branco, família `EDM-04X` nem
+dá pra detectar) como "console lido" + `EDM-040-J100-PANASONIC.BIN` como
+arquivo-base -> resultado final preserva exatamente o chip, família,
+serial e MAC do arquivo-base (nada é apagado), e o log de mudanças mostra
+os 4 campos como "mantidos", não como "reaproveitados". Fluxo de botões
+também testado via instância real do `App` (estado automático
+desabilitado, manual habilitado, botão de salvar habilita após aplicar).
+
+## Implementado 2026-10-06: conversão de "Tipo de console" (Disco/Digital/Edição Slim)
+
+Usuário trouxe um print do **Console Service Tool** (ferramenta de
+terceiro que ele já tinha instalada em `ConsoleServiceTool/` nesta
+máquina) mostrando um campo editável "Console Type:" com as opções
+"Disk", "Digital", "Slim Edition" pro mesmo arquivo `EDM-O33 ... .bin`
+que já tínhamos analisado. Pedido: implementar essa mesma conversão,
+focada no caso de PS5 "Fat" (EDM-01X a EDM-03X, com leitor de disco fixo)
+com leitor de disco com defeito — como o leitor é pareado com a APU e não
+dá pra trocar por outro, a única forma de o aparelho voltar a atualizar é
+o sistema parar de exigir o leitor, convertendo o console pra "Digital"
+via software.
+
+**Método usado pra achar o offset real** (sem adivinhar): o Console
+Service Tool é um app .NET 8 (WinForms + WebView2, `ConsoleServiceTool.dll`).
+Baixado o decompilador `ilspycmd` (pacote oficial do projeto ILSpy, via
+NuGet, rodado com `dotnet ilspycmd.dll -p -o <pasta> ConsoleServiceTool.dll`
+usando o runtime .NET 8 já instalado na máquina — não precisou de SDK) e
+decompilado o `.dll` inteiro de volta pra C#. Achados nos arquivos
+`ConsoleServiceTool.Console.Sony.Shared/ConsoleType.cs`,
+`Nvs.cs` e `Nor.cs`:
+
+- `ConsoleType` é um enum de 4 bytes **big-endian**: `SlimEdition =
+  0x22010101`, `Disk = 0x22020101`, `Digitial = 0x22030101` (bytes no
+  arquivo: `22 01 01 01` / `22 02 01 01` / `22 03 01 01` — só o segundo
+  byte muda: 01/02/03).
+- Essa struct `Nvs` é lida sequencialmente a partir de um offset fixo
+  dentro do `Nor` inteiro (`Header` 0x1000 + `ActiveSlot` 0x1000 + `Mbr1` +
+  `Mbr2` + `EmcIplA` + `EmcIplB` + `UsbPdcA` + `UsbPdcB` + `Unk[671744]`).
+  Em vez de somar todos esses tamanhos um por um (risco de erro), a base
+  da `Nvs` foi calculada **duas vezes de forma independente**, usando dois
+  campos que já tínhamos validado (`MacAddressData`, offset relativo 32
+  dentro da `Nvs`, e `MotherBoardSerialNumberData`, offset relativo
+  12800) contra os offsets absolutos já confirmados nesse projeto
+  (`OFFSET_MAC = 0x1C4020`, `OFFSET_MOBO_SERIAL = 0x1C7200`). As duas
+  contas bateram exatamente na mesma base: `0x1C4000` (= o mesmo
+  `OFFSET_BOARD_ID` que já usávamos) -- ou seja, a `Nvs` do Console
+  Service Tool é literalmente o mesmo bloco que a gente já vinha lendo
+  campo por campo, só que ele trata como uma struct única. A partir
+  dessa base: `ConsoleType` fica em **0x1C7010** (4 bytes) e o campo
+  `Idu` (modo "unidade de demonstração" de loja, não relacionado à
+  conversão disco/digital) fica em **0x1C9600** (1 byte: `0xFF` =
+  desativado, `0x01` = ativado).
+
+**Confirmado empiricamente** contra as 11 amostras reais em `NOR's/`
+(incluindo bater exatamente com o "Disk" mostrado pelo próprio Console
+Service Tool no print do usuário pro arquivo EDM-O33): placas EDM-03X
+(SKU `CFI-1xxx`, geração "Fat") mostram `Disk`; placas EDM-04X/05X (SKU
+`CFI-2xxx`, geração "Slim") mostram `SlimEdition` uniformemente,
+independente do chip HDMI (Realtek ou Nuvoton) ou se são "com"/"sem"
+leitor de disco no nosso flag já conhecido (0x1C4005) — reforça a teoria
+de que na geração Slim o leitor é modular/detectado em runtime, então não
+existe uma distinção Disco/Digital fixa gravada na NOR pra esses modelos
+(diferente da geração Fat, onde essa troca faz sentido real). Os 3
+arquivos totalmente em branco (ver seção acima) mostram `0xFFFFFFFF`,
+tratado como "não identificado" — consistente com o resto do programa.
+
+Verificado também no código decompilado (`PS5NorView.cs`,
+`ButtonSave_Click`/`UpdateChangedNorValues`) que o Console Service Tool
+só regrava esse campo isolado — não recalcula nenhum checksum nem mexe em
+mais nada quando convertendo tipo de console, diferente do patch de chip
+HDMI (que depende da tabela de checksum em 0x1C41FE). Por isso
+`apply_console_type()` ficou simples: troca só os 4 bytes, sem
+`checksum_left_stale`.
+
+**Implementado**: `nor_parser.extract_console_type()`/`extract_idu_mode()`
+(novos campos em `NorInfo`, exibidos na aba "Analisar arquivo .bin"), e
+`nor_patcher.apply_console_type(original, target)` com
+`target in {"disk", "digital", "slim"}`. Nova seção na aba de análise de
+arquivo: combo com os 3 tipos + botão "Converter", com confirmação
+explicando o propósito (console Fat com leitor de disco com defeito) e
+aviso pra só gravar em placa de bancada/teste antes de confiar em
+cliente.
+
+Testado: conversão Disco -> Digital no arquivo EDM-O33 real muda só 1
+byte (offset 0x1C7011, só o byte discriminador — os outros 3 bytes fixos
+`22 01 01` não mudam entre Disco e Digital), volta exatamente aos bytes
+originais revertendo a conversão (round-trip bit-exato verificado). Fluxo
+completo também testado via instância real do `App`, incluindo troca de
+idioma com o combo re-populado corretamente.
+
+Pasta de referência: `ConsoleServiceTool/` (não faz parte do nosso
+repositório git, fica fora de `ps5-hdmi-tool/` -- só foi usada aqui como
+material de pesquisa, como os outros projetos de terceiros já citados
+neste arquivo).
+
+## Renomeado 2026-10-06: botão "Restaurar backup de arquivo..." -> "Gravar arquivo .bin na NOR..."
+
+Usuário pediu pra aba de hardware ter uma opção de carregar uma NOR
+modificada (ex.: convertida na aba "Analisar arquivo") e gravar ela no
+chip conectado. Essa função **já existia** -- o botão "Restaurar backup
+de arquivo..." (`on_restore_backup`) sempre aceitou qualquer `.bin` de
+2 MB válido, não só backups próprios, e já fica habilitado assim que o
+leitor é detectado (não exige ter lido a placa antes). O problema era só
+o nome e os textos ao redor (diálogo de seleção, confirmação, log), que
+davam a entender que era exclusivo pra restaurar um backup antigo da
+mesma placa -- por isso não ficou óbvio que servia também pra gravar um
+arquivo recém-convertido.
+
+Só renomeado (nenhuma mudança de lógica): botão, título do diálogo de
+arquivo, filtro de tipo de arquivo, títulos/corpos de confirmação, frase
+de confirmação final e linhas de log -- todos trocados de linguagem
+"restaurar backup" pra linguagem genérica "gravar arquivo .bin", nos 3
+idiomas. `on_restore_backup`/`_restore_worker` (nomes internos) e
+`BACKUP_DIR` como pasta inicial do diálogo continuam iguais.
+
+## Implementado 2026-10-06: validação real de NOR de PS5 + animação ao gravar arquivo .bin
+
+Usuário pediu pra "Gravar arquivo .bin na NOR..." (aba de hardware) só
+aceitar arquivos que sigam o padrão de uma NOR de PS5 -- hoje só
+conferíamos o tamanho (2 MB), o que deixa passar qualquer binário de 2 MB,
+não só NORs de PS5 de verdade. Pediu também uma animação ao clicar nessa
+opção (imagem enviada, `images/verifying_file.gif`, 480x480, 76 frames) e
+avisou que vai mandar uma segunda animação depois, pro caso de arquivo
+inválido.
+
+**Validação real**: achamos uma assinatura fixa de 32 bytes no offset 0
+de toda NOR de PS5 -- `"SONY COMPUTER ENTERTAINMENT INC."` -- vista no
+código-fonte decompilado do Console Service Tool (`NorHeader.Magic`, ver
+seção acima) e **confirmada em todas as nossas 8 amostras reais com
+dado** (as 3 em branco/corrompidas, como esperado, não têm -- ver seção
+"Diagnosticado e corrigido 2026-10-06"). Nova função
+`nor_parser.has_valid_nor_magic()`. Tamanho certo sozinho não bastava pra
+provar que é uma NOR de PS5; agora a gravação exige os dois: tamanho
+E assinatura.
+
+**Fluxo em `on_restore_backup`** (reestruturado em 4 métodos, mesmo
+padrão já usado em `on_detect`/`_detect_worker`/`_wait_min_display`):
+1. `on_restore_backup`: escolhe o arquivo, mostra o novo estágio
+   "verifying_file" (a animação) e dispara a verificação numa thread
+   separada (pra animação não travar).
+2. `_verify_file_worker` (thread): confere tamanho + assinatura, garante
+   tempo mínimo de exibição da animação (`_wait_min_display`, mesmo
+   mecanismo da detecção), volta pra thread principal via `self.after()`.
+3. `_verify_file_done` (thread principal): se tamanho errado -> erro
+   específico de tamanho (já existia); se assinatura errada -> **novo**
+   erro "Arquivo não é uma NOR de PS5" explicando que só deve usar
+   arquivos NOR de PS5; se os dois passam -> `_proceed_restore`.
+4. `_proceed_restore`: fluxo de confirmação dupla + gravação que já
+   existia antes, inalterado.
+
+Testado: arquivo de 2 MB com bytes aleatórios (tamanho certo, assinatura
+errada) rejeitado com a mensagem nova; arquivo de tamanho errado rejeitado
+com a mensagem antiga; arquivo real (`EDM-O33 ... .bin`) passa nos dois
+testes e chega até o diálogo de confirmação de gravação. Fluxo assíncrono
+completo (thread + `self.after()` + `mainloop()`) testado de ponta a
+ponta também.
+
+**Pendente**: a segunda animação (pra quando o arquivo é rejeitado) ainda
+não foi adicionada -- por enquanto, arquivo inválido só volta pro estágio
+"idle" (ver `TODO` em `_verify_file_done`). Trocar por uma animação
+dedicada assim que o usuário mandar.
+
+## Implementado 2026-10-06: só mostrar .bin no diálogo de "Gravar arquivo .bin na NOR"
+
+Filtro de arquivo (`on_restore_backup`) tinha duas opções no diálogo --
+"Arquivo NOR (*.bin)" e "Todos os arquivos (*.*)" -- deixando o usuário
+escolher qualquer tipo de arquivo por engano. Removida a opção "Todos os
+arquivos"; agora o diálogo só lista `.bin`.
+
+## Implementado 2026-10-06: carregar arquivo .bin exige clicar no passo 4 pra gravar + botão "Restaurar NOR a partir de Backup" + aviso de backup ausente
+
+Usuário pediu 3 coisas relacionadas ao fluxo de gravação da aba de
+hardware:
+
+1. **"Carregar arquivo .bin para gravar..."** (renomeado de "Gravar
+   arquivo .bin na NOR...") não deve gravar nada direto mais -- só deve
+   carregar o arquivo, mostrar todas as informações parseadas dele (igual
+   ao que já aparecia depois de ler a placa de verdade no passo 2) e
+   habilitar o passo "4. GRAVAR NA NOR". A gravação em si só acontece
+   quando o usuário clicar nesse botão do passo 4, igual ao fluxo normal
+   de ler+pré-visualizar.
+   - `_verify_file_done` agora chama `_load_file_for_write(path, data)`
+     em vez de `_proceed_restore` direto. `_load_file_for_write` faz
+     `parse_nor(data)`, guarda em `self.last_dump`/`self.last_info`, cria
+     um `PatchResult` "vazio" (`changes=[]`, sem alterar nada -- só grava
+     o arquivo como está), loga tudo via novo método compartilhado
+     `_log_full_info(info)` (extraído do que já existia em `_read_done`,
+     reusado nos dois lugares), e habilita `btn_write`.
+   - Novo atributo `self._write_source` ("patch" ou "restore") -- marca
+     se `self.last_dump`/`self.last_patch` vieram de uma leitura real do
+     chip (deve conferir se a NOR não mudou antes de gravar, via
+     `pre_check_against=self.last_dump`) ou de um arquivo externo
+     carregado (não tem o que conferir contra o chip, já que o arquivo
+     nunca veio dele -- `pre_check_against=None`, igual ao comportamento
+     antigo de restaurar backup). `_write_worker` agora decide com base
+     nisso.
+
+2. **Removida a palavra "(irreversível)"** do texto do botão "4. GRAVAR
+   NA NOR" -- o processo pode sim ser revertido depois, usando o novo
+   botão "Restaurar NOR a partir de Backup" (ver item 3), então o rótulo
+   do botão não devia mais afirmar que é irreversível.
+
+3. **Novo botão "Restaurar NOR a partir de Backup"** (`btn_restore_from_backup`
+   / `on_restore_from_backup`), ao lado dos outros dois botões de
+   gravação. Grava de volta o último backup feito nesta sessão
+   (`self.last_backup_path` -- seja o do passo 2, seja o automático do
+   item 4 abaixo), reaproveitando o `_proceed_restore` que já existia
+   (mesma dupla confirmação + frase de confirmação). Se não houver nenhum
+   backup feito ainda (`self.last_backup_path is None`), mostra aviso
+   "Nenhum backup encontrado" em vez de tentar gravar.
+
+4. **Aviso de backup ausente ao clicar em "4. GRAVAR NA NOR"**: se
+   `self.last_backup_path is None` nesse momento (típico do fluxo do
+   item 1 -- carregou um arquivo externo sem nunca ter lido a placa no
+   passo 2), mostra uma caixa de aviso explicando que, sem backup, a
+   gravação será IRREVERSÍVEL, perguntando se quer fazer um backup
+   automático agora. Se sim, lê a NOR atual duas vezes (mesma lógica de
+   comparação de confiabilidade do passo 2, incluindo o aviso de leituras
+   divergentes) e salva via `_save_backup` antes de prosseguir pro
+   diálogo de confirmação normal de gravação; se não, segue direto pra
+   confirmação. Implementado como `on_write` -> (opcional)
+   `_backup_before_write_worker` (thread) -> `_write_confirm_and_go`
+   (extraído do corpo antigo de `on_write`, agora reaproveitado nos dois
+   caminhos).
+
+Testado manualmente após build/instalação local (v1.0.12 em diante,
+pendente de build final desta leva de mudanças).
+
+## Implementado 2026-10-06: validar que existe uma NOR de verdade no passo 2 (leitura via hardware)
+
+Usuário reportou uma falha de segurança: testando com a leitora CH341A sem
+nenhuma NOR conectada no soquete/clipe, o passo 2 ("Ler NOR") terminava
+como se tivesse lido com sucesso -- as duas leituras batiam entre si (já
+que um soquete vazio devolve sempre o mesmo valor fixo, tipicamente 0xFF),
+então `compare_dumps` não pegava isso, e o programa seguia como se fosse
+uma NOR válida.
+
+**Causa raiz**: `_read_worker` só conferia se as duas leituras batiam
+entre si (`compare_dumps`), nunca se o *conteúdo* delas fazia sentido como
+NOR de PS5. Já tínhamos as duas funções certas pra isso
+(`nor_parser.is_blank()` e `nor_parser.has_valid_nor_magic()`, criadas em
+sessões anteriores -- ver "Diagnosticado e corrigido 2026-10-06" e
+"Implementado 2026-10-06: validação real de NOR de PS5" acima), só não
+estavam sendo usadas nesse ponto do fluxo; só apareciam como aviso no log
+(`parse_nor`) ou na validação de arquivo externo (`on_restore_backup`).
+
+**Correção**: depois que as duas leituras baterem, `_read_worker` agora
+confere, nessa ordem, antes de aceitar a leitura como válida:
+1. `is_blank(dump1)` -- 100% 0xFF -- rejeita como "soquete vazio ou mau
+   contato" (um PS5 de verdade não liga com a NOR vazia assim).
+2. `has_valid_nor_magic(dump1)` -- se tiver dado mas não a assinatura
+   `"SONY COMPUTER ENTERTAINMENT INC."` no offset 0 -- rejeita como "NOR
+   corrompida, chip errado no soquete, ou não é NOR de PS5".
+
+Nos dois casos: mostra erro bloqueante (`messagebox.showerror`, título
+"NOR corrompida ou inexistente"), loga o motivo, reusa a animação de
+"detect_failed" que já existia, e **não** salva backup nem habilita
+pré-visualizar/doador/gravar -- a leitura é tratada como falha, não como
+sucesso parcial. `self.last_dump`/`self.last_backup_path` continuam
+`None`, então não há risco de alguém gravar algo em cima de uma leitura
+inválida achando que é dado real.
+
+Não mexe na aba "Analisar arquivo (.bin)" nem no fluxo de carregar `.bin`
+externo pra gravar (`on_restore_backup`) -- aquele já tinha sua própria
+validação de assinatura desde a sessão anterior, e a aba de análise de
+arquivo continua permissiva de propósito (é o lugar certo pra abrir um
+dump em branco/corrompido e tentar regenerar a partir de um
+arquivo-base).
+
+Testado com NOR falsa simulando 3 cenários: soquete vazio (0xFF puro) ->
+rejeitado, não vira `last_dump`/backup; dado qualquer sem a assinatura
+certa -> rejeitado; NOR real válida -> continua funcionando normalmente
+(sem regressão).
+
+## Implementado 2026-10-06: identificar o chip de flash (Winbond) no passo 1
+
+Usuário mandou print de outra ferramenta de CH341A mostrando que ela
+identifica o chip conectado como `Manuf: WINBOND`, `Name: W25Q16JV-xM`,
+`Size: 2097152` a partir do JEDEC ID, e pediu pro nosso programa também
+ser capaz de reconhecer a Winbond.
+
+O passo 1 ("Detectar leitor CH341A") já lia o JEDEC ID (`read_jedec_id()`)
+desde o início do projeto, mas só mostrava os 3 bytes brutos em hex no
+log -- não traduzia isso pra fabricante/modelo. `0xEF` é o código de
+fabricante padrão da JEDEC pra Winbond (constante oficial da indústria,
+não é algo que estamos adivinhando); `EF 40 15` é o ID exato da
+W25Q16JV, já confirmado nas nossas amostras reais (ver docstring de
+`ch341_spi.py` e `NOTES.md`).
+
+Nova função `ch341_spi.describe_jedec_id(jedec) -> (fabricante, modelo,
+tamanho, confirmado)`:
+- `EF 40 15` exato -> `("Winbond", "W25Q16JV", 2097152, True)`.
+- Qualquer outro ID com primeiro byte `0xEF` -> `("Winbond", None, None,
+  False)` -- reconhece o fabricante mas avisa que esse modelo específico
+  ainda não foi confirmado neste programa.
+- Qualquer outro fabricante -> `(None, None, None, False)`.
+
+Retorna dado estruturado, não texto pronto -- seguindo a mesma regra já
+estabelecida nesse projeto de nunca cravar string traduzida fora do
+`i18n.py` (ver gotcha de `CONSOLE_TYPE_TARGET_LABEL` documentado acima).
+`gui.py`/`_detect_done` monta a frase certa com `t()` a partir desses
+campos, em 3 variações (chip confirmado / fabricante Winbond mas modelo
+não confirmado / fabricante desconhecido).
+
+Não bloqueia nada -- é só informativo no passo 1, igual o JEDEC ID bruto
+já era. A validação que de fato impede prosseguir com uma NOR inválida
+continua sendo a do passo 2 (ver seção anterior, "validar que existe uma
+NOR de verdade").
+
+Testado com 3 JEDEC IDs simulados: `EF 40 15` (Winbond W25Q16JV
+confirmado), outro ID com `0xEF` (Winbond reconhecido, modelo não
+confirmado) e um ID de outro fabricante (`0xC2`, Macronix, não
+reconhecido).
+
+## Implementado 2026-10-06: programa demorando pra abrir (duas causas, as duas corrigidas) + atualização automática via GitHub
+
+Usuário reportou que o programa estava demorando pra abrir, e pediu duas
+coisas: (1) otimizar a abertura; (2) o programa checar sozinho se tem uma
+versão nova no GitHub, avisar o usuário, e se ele aceitar, baixar e
+sobrescrever a instalação atual.
+
+### Causa raiz da lentidão (medida, não só suposta)
+
+Duas causas, medidas separadamente antes de mexer em qualquer coisa:
+
+1. **`GifAnimation` carregava TODOS os frames de TODAS as ~11 animações de
+   estágio no arranque**, mesmo só uma ficando visível por vez (a "idle").
+   Cada frame passa por `Image.convert("RGBA").resize(..., LANCZOS)` do
+   Pillow -- caro. Medido: decodificar os ~922 frames de todos os 11 GIFs
+   (480x480 cada, resize pra 260x260) levava **6.3 segundos sozinho**, a
+   maior fatia do tempo de abertura.
+2. **Build em modo "onefile" do PyInstaller + UPX ligado.** Onefile
+   descompacta tudo numa pasta temporária toda vez que o `.exe` abre (não
+   só na instalação); UPX comprime o `.exe` no disco mas precisa
+   descomprimir na memória a cada abertura -- as duas coisas somam um
+   custo de processo que só existe em onefile/UPX, não em onedir puro.
+
+### Correção 1: carregamento preguiçoso de GIF (`gif_anim.py`)
+
+`GifAnimation.__init__` não decodifica mais nada -- só guarda o caminho e
+o tamanho. Novo `_ensure_loaded()` decodifica (com cache via
+`self._loaded`) na primeira vez que `start()` é chamado pra aquela
+animação -- ou seja, na primeira vez que aquele estágio realmente aparece
+na tela. Como `_show_stage()` já chama `anim.start()`/`anim.stop()` certo
+pra cada estágio, nenhuma outra mudança foi necessária em `gui.py`.
+
+Resultado medido (`App()` construído direto, sem passar pelo `.exe`
+empacotado): de ~6.3s só nos GIFs (mais o resto do custo de construir a
+janela) pra **1.53s no total** pra montar a janela inteira -- só a "idle"
+(162 frames) carrega de cara agora, as outras 10 animações (760 frames)
+carregam sob demanda, uma vez cada, na primeira vez que o usuário realmente
+vir aquele estágio (durante uma leitura/gravação de verdade, por exemplo
+-- onde o tempo de decodificar um GIF é imperceptível perto do tempo de
+esperar o hardware).
+
+### Correção 2: PyInstaller onedir (não onefile) + UPX desligado
+
+`PS5_HDMI_Tool.spec`: `EXE(..., exclude_binaries=True, upx=False)` +
+`COLLECT(exe, a.binaries, a.datas, upx=False, name='PS5_HDMI_Tool')`, em
+vez de passar `a.binaries`/`a.datas` direto pro `EXE()` (que era o que
+gerava o `.exe` único). Build agora sai em `dist/PS5_HDMI_Tool/` (pasta,
+com `PS5_HDMI_Tool.exe` + `_internal/`), não mais `dist/PS5_HDMI_Tool.exe`.
+`installer.iss` ajustado pra copiar a pasta inteira (`Source: "dist\
+PS5_HDMI_Tool\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs`)
+em vez de só o `.exe`. README.md/README.en.md atualizados (comandos de
+build, caminho do `.exe` gerado, nota sobre não usar `--onefile`).
+
+Medido com o build final (onedir + GIF preguiçoso): processo até a janela
+aparecer na tela, **2.41s** (via `Start-Process` + polling de
+`MainWindowHandle`) -- bateu com o esperado (overhead de processo/DLLs +
+~1.5s de `App()`).
+
+### Atualização automática (`version.py` + `updater.py`)
+
+Novo `version.py`: `APP_VERSION = "1.0.16"` -- fonte única da versão em
+tempo de execução, usada só pela checagem de atualização. **Precisa ser
+atualizado junto com `version_info.txt` e `installer.iss` a cada bump de
+versão daqui pra frente** (3 arquivos, nenhum lê o outro automaticamente
+-- documentado no topo do próprio `version.py`).
+
+Novo `updater.py`, só biblioteca padrão (`urllib`, sem dependência nova
+pra empacotar):
+- `check_for_update() -> UpdateInfo | None`: consulta
+  `api.github.com/repos/vendashson-rgb/ps5-hdmi-tool/releases/latest`,
+  compara a tag (`vX.Y.Z`) com `APP_VERSION`, acha o asset
+  `PS5_HDMI_Tool_Setup.exe` na release. Timeout de 6s. Qualquer erro (sem
+  internet, API fora do ar, repositório sem releases, asset não encontrado)
+  -> retorna `None` **sem levantar exceção** -- essa checagem é um bônus,
+  nunca deve incomodar ou travar o programa por falta de internet.
+- `download_update(info, dest_path, progress_cb=None)`: baixa em chunks de
+  256 KB, chama `progress_cb(baixado, total)` a cada chunk.
+
+Fluxo em `gui.py`: `App.__init__` agenda `self.after(3000,
+self._start_update_check)` -- 3s depois do programa abrir (não compete com
+o arranque), roda `check_for_update()` numa thread (mesmo padrão
+thread+`self.after(0, ...)` já usado em todo o resto do programa). Se
+achar atualização: `messagebox.askyesno` perguntando se quer baixar e
+instalar agora. Se sim: abre um `Toplevel` modal com barra de progresso
+determinada, baixa numa thread, e ao terminar chama
+`subprocess.Popen([instalador_baixado])` seguido de `self.destroy()` +
+`sys.exit(0)` -- fecha o programa atual pra o instalador conseguir
+sobrescrever o `.exe` sem o erro de "acesso negado" (DeleteFile falhou)
+que o usuário bateu mais cedo nesta sessão tentando instalar manualmente
+com o programa antigo ainda aberto. Download com erro -> mensagem de erro,
+programa continua funcionando normalmente com a versão atual.
+
+Testado: checagem contra o repositório real (`gh release list` confirmou
+`v1.0.7` como última publicada) -- com `APP_VERSION` maior, retorna `None`
+corretamente (não finge achar atualização); com `APP_VERSION` forçado pra
+baixo, acha a `v1.0.7` certinha (versão, URL do asset, tamanho). Download
+e fluxo completo (perguntar -> baixar com progresso -> salvar -> abrir
+instalador -> fechar o programa) testado de ponta a ponta contra um
+servidor HTTP local fake, com `subprocess.Popen`/`sys.exit`
+mockados. Falha de rede (URL inválida) testada -> retorna `None` em
+silêncio, sem exceção.

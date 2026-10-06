@@ -26,18 +26,34 @@ class GifAnimation(tk.Label):
         kwargs.setdefault("bd", 0)
         kwargs.setdefault("highlightthickness", 0)
         super().__init__(master, **kwargs)
+        self._path = path
+        self._size = size
         self._frames: list = []
         self._delays: list[int] = []
         self._default_delay = delay_ms or 100
-
-        if size and _HAS_PIL:
-            self._load_with_pil(path, size)
-        else:
-            self._load_native(path)
+        self._loaded = False
 
         self._idx = 0
         self._running = False
         self._after_id = None
+
+    def _ensure_loaded(self):
+        """Decodifica (e redimensiona via Pillow) os frames do GIF so na
+        primeira vez que essa animacao realmente vai aparecer na tela, em
+        vez de todas as ~11 animacoes de estagio serem decodificadas de
+        uma vez no arranque do programa -- so a "idle" (a primeira
+        mostrada) carrega de cara; o resto carrega sob demanda, uma vez
+        cada, e fica em cache depois (`self._loaded`). Medido: decodificar
+        as ~922 frames de todos os GIFs de estagio de uma vez levava ~6.3s
+        sozinho -- a maior parte do tempo de abertura do programa (ver
+        NOTES.md)."""
+        if self._loaded:
+            return
+        self._loaded = True
+        if self._size and _HAS_PIL:
+            self._load_with_pil(self._path, self._size)
+        else:
+            self._load_native(self._path)
         if self._frames:
             self.configure(image=self._frames[0])
 
@@ -64,7 +80,10 @@ class GifAnimation(tk.Label):
             i += 1
 
     def start(self):
-        if self._running or not self._frames:
+        if self._running:
+            return
+        self._ensure_loaded()
+        if not self._frames:
             return
         self._running = True
         self._animate()

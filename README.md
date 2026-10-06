@@ -46,6 +46,13 @@ instala o programa e o driver do leitor CH341A automaticamente (pede
 permissão de administrador pra isso). Não precisa instalar Python nem nada
 além dele.
 
+Depois de instalado, o próprio programa confere sozinho (alguns segundos
+depois de abrir) se há uma versão mais nova publicada no GitHub — se
+houver, mostra um aviso perguntando se quer baixar e instalar agora; se
+aceitar, ele baixa o instalador novo, abre ele e fecha sozinho, sem
+precisar baixar nada manualmente de novo. Falha de internet nessa checagem
+é ignorada em silêncio (não atrapalha o uso normal do programa).
+
 Programa para ler/gravar a NOR de placas PS5 Slim via leitor CH341A, conferir
 a leitura, salvar backup automático, mostrar informações da placa (chip HDMI
 instalado, MAC, dados de identificação) e aplicar o patch de conversão de
@@ -164,7 +171,10 @@ você manda pro usuário. Ao rodar:
 5. Oferece abrir o programa ao final.
 
 **Não precisa instalar Python na máquina do usuário** — o `.exe` já leva o
-Python embutido (gerado com PyInstaller `--onefile`).
+Python embutido (gerado com PyInstaller, modo "onedir" — uma pasta com o
+`.exe` e seus arquivos de apoio, não um `.exe` único; onedir abre muito
+mais rápido que onefile, que precisa se descompactar numa pasta temporária
+toda vez que abre).
 
 **Controle DualSense (aba "Teste de Controle"):** não precisa de driver
 separado — é um dispositivo HID USB padrão, e o Windows já tem suporte nativo
@@ -187,15 +197,17 @@ py -3.11-32 -m PyInstaller PS5_HDMI_Tool.spec
 ```
 
 (na primeira vez, se não existir o `.spec`, use o comando completo:
-`py -3.11-32 -m PyInstaller main.py --name "PS5_HDMI_Tool" --onefile --icon images/icon.ico --add-data "images;images" --add-data "drives;drives"`)
+`py -3.11-32 -m PyInstaller main.py --name "PS5_HDMI_Tool" --onedir --icon images/icon.ico --add-data "images;images" --add-data "drives;drives"`
+— **não** use `--onefile`: deixa o programa bem mais lento pra abrir, porque
+precisa se descompactar numa pasta temporária toda vez)
 
-O `.exe` final fica em `dist/PS5_HDMI_Tool.exe` — é um arquivo único e
-portátil, não precisa instalar nada (só rodar). Pra rodar direto assim (sem
-o instalador), copie também a pasta `drives/` do lado do `.exe` — se o
-Windows não detectar o leitor CH341A sozinho, aponte manualmente pra essa
-pasta no Gerenciador de Dispositivos (dentro do `.exe` ela só existe numa
-pasta temporária enquanto o programa está aberto, por isso precisa da cópia
-do lado de fora). **Pra entregar pra um usuário final, prefira sempre o
+O `.exe` final fica em `dist/PS5_HDMI_Tool/PS5_HDMI_Tool.exe`, dentro de uma
+pasta com os arquivos de apoio dele (`_internal/` etc.) — é essa pasta
+inteira que precisa ser copiada/distribuída junto, não só o `.exe` sozinho.
+Pra rodar direto assim (sem o instalador), copie também a pasta `drives/`
+pra dentro de `dist/PS5_HDMI_Tool/` — se o Windows não detectar o leitor
+CH341A sozinho, aponte manualmente pra essa pasta no Gerenciador de
+Dispositivos. **Pra entregar pra um usuário final, prefira sempre o
 instalador** (seção acima) — ele já cuida do driver sozinho.
 
 O `.exe` roda só com a janela do programa (`console=False` no `.spec`) —
@@ -208,13 +220,20 @@ mesmo sem o console visível.
 ## Fluxo de uso
 
 1. Conecte o leitor CH341A com a NOR no soquete/clipe.
-2. Clique em **"1. Detectar leitor CH341A"**. Confira se o JEDEC ID mostrado
-   bate com o esperado pro chip da placa (ex.: `EF 40 15` para a W25Q16JV).
+2. Clique em **"1. Detectar leitor CH341A"**. O programa lê o JEDEC ID do
+   chip de flash e já identifica se é a Winbond W25Q16JV (2 MB) esperada
+   nas placas de PS5 — se for outro modelo da Winbond ou outro fabricante,
+   avisa no log pra você conferir se é o chip certo antes de prosseguir.
 3. Clique em **"2. Ler NOR"**. O programa:
    - Lê a NOR inteira duas vezes e compara byte a byte.
    - Se as duas leituras não baterem, avisa e **não** salva nada — refaça o
      contato do leitor e tente de novo.
-   - Se baterem, salva as duas leituras em
+   - Se baterem, confere se o conteúdo é mesmo uma NOR de PS5: se vier 100%
+     vazio (0xFF), avisa que provavelmente não há NOR no soquete/clipe (mau
+     contato); se tiver dado mas não tiver a assinatura de uma NOR de PS5,
+     avisa que ela está corrompida ou é de outro tipo de chip. Nos dois
+     casos, **não** salva nada e não trata como leitura válida.
+   - Se baterem e forem uma NOR de PS5 válida, salva as duas leituras em
      `database/backups/<identificador_do_console>/DUMP1.bin` e `DUMP2.bin`
      e mostra as informações da placa. Cada console tem sua própria subpasta
      (uma leitura nova do mesmo console sobrescreve `DUMP1.bin`/`DUMP2.bin`
@@ -231,10 +250,25 @@ mesmo sem o console visível.
    resto dele como está. Mostra o chip/família detectados no arquivo-base e
    pede confirmação antes de prosseguir — confira se batem com o que você
    pretende instalar. Depois é só clicar em "Gravar na NOR" normalmente.
-5. Para restaurar um backup salvo anteriormente (ou qualquer `.bin` de 2 MB
-   válido) de volta na NOR conectada, use o botão **"Restaurar backup de
-   arquivo..."** — ele pede o arquivo, confirma duas vezes e grava com a
-   mesma barra de progresso de 4 etapas (conferir, apagar, gravar, verificar).
+5. Para gravar qualquer `.bin` de 2 MB válido na NOR conectada — um backup
+   salvo anteriormente, ou um arquivo convertido na aba "Analisar arquivo
+   (.bin)" (patch de chip, arquivo-base, tipo de console) — use o botão
+   **"Carregar arquivo .bin para gravar..."**. Fica disponível assim que o
+   leitor é detectado (não precisa ler a placa antes). Só o tamanho (2 MB) e
+   a assinatura de uma NOR de PS5 são conferidos ali; o programa então
+   carrega o arquivo e mostra todas as informações dele, igual já faz depois
+   de ler a placa de verdade — ele **não** grava nada ainda. A gravação só
+   acontece quando você clicar em **"4. GRAVAR NA NOR"**, igual ao fluxo
+   normal de ler+pré-visualizar.
+6. Ao clicar em **"4. GRAVAR NA NOR"**, se você ainda não tiver feito nenhum
+   backup nesta sessão (nem pelo passo 2, nem carregando um arquivo sem
+   antes ler a placa), o programa avisa que, sem backup, a gravação será
+   irreversível, e oferece fazer um backup automático agora (duas leituras
+   da NOR atual) antes de continuar.
+7. **"Restaurar NOR a partir de Backup"**: grava de volta, com a mesma
+   dupla confirmação, o último backup feito nesta sessão (do passo 2, ou o
+   automático oferecido no passo 6). Se nenhum backup tiver sido feito
+   ainda, avisa em vez de tentar gravar.
 
 ## Aba "Analisar arquivo (.bin)"
 
@@ -250,6 +284,25 @@ aquela família, reaproveita o número de série e os endereços MAC do arquivo
 aberto e grava por cima do arquivo-base automaticamente (mesma lógica do
 botão "Usar arquivo-base..." da aba de hardware, só que escolhendo o
 arquivo-base certo sozinho em vez de pedir pra você selecionar um).
+
+Se o arquivo estiver corrompido ou totalmente em branco (leitura que não
+trouxe dado nenhum — o programa avisa isso claramente no log) e por isso a
+família não puder ser detectada automaticamente, use o botão **"Regenerar
+com arquivo-base..."**: você escolhe manualmente o arquivo-base certo (pelo
+modelo impresso na própria placa) e o programa grava por cima dele só os
+dados que conseguir aproveitar do arquivo original — os campos que não têm
+dado válido são mantidos como já estavam no arquivo-base, em vez de serem
+apagados.
+
+**Converter tipo de console (Disco / Digital / Edição Slim)**: campo
+usado pelo sistema pra decidir se exige o leitor de disco físico. Útil
+principalmente pra PS5 "Fat" (EDM-01X a EDM-03X) com o leitor de disco
+com defeito — como ele é pareado com a APU e não dá pra trocar por outro,
+convertendo o console pra "Digital" o sistema para de exigi-lo e volta a
+atualizar normalmente. Escolha o tipo de destino no menu e clique em
+"Converter"; o resultado precisa ser salvo (botão "Salvar NOR com
+patch...") e gravado numa placa de bancada/teste antes de confiar em
+cliente.
 
 ## Aba "Leitor UART"
 
@@ -313,13 +366,15 @@ Código do programa (ficam na raiz):
 - `ch341_spi.py` — comunicação com o leitor CH341A (**testado e confirmado com hardware real** — leitura e gravação de NOR funcionando).
 - `uart_reader.py` — captura da porta serial/UART (aba "Leitor UART"). **Ainda não testado com um adaptador real.**
 - `dualsense.py` — leitura/teste de controle DualSense via HID bruto (aba "Teste de Controle"). **Ainda não testado com um controle real.**
-- `gif_anim.py` — player de animações GIF usado na interface.
+- `gif_anim.py` — player de animações GIF usado na interface (carregamento preguiçoso — só decodifica os frames de um estágio na primeira vez que ele realmente aparece na tela).
 - `i18n.py` — traduções da interface (português/inglês/espanhol) e o seletor de idioma ativo.
+- `version.py` — número da versão atual (fonte única, usada pela checagem de atualização).
+- `updater.py` — checagem e download de atualizações via GitHub Releases.
 - `gui.py` — interface gráfica (Tkinter).
 - `main.py` — ponto de entrada (`python main.py`).
 - `requirements.txt` — dependências Python (Pillow, pyserial, hidapi).
 - `NOTES.md` — mapa de offsets confirmados e pendências.
-- `PS5_HDMI_Tool.spec` — receita do PyInstaller pra gerar `dist/PS5_HDMI_Tool.exe`.
+- `PS5_HDMI_Tool.spec` — receita do PyInstaller pra gerar `dist/PS5_HDMI_Tool/` (onedir).
 - `installer.iss` — receita do Inno Setup pra gerar o instalador final (`installer_output/PS5_HDMI_Tool_Setup.exe`), a partir do `.exe` já gerado.
 - `docs/GUIA_INSTALACAO_INTERPOSER.md` — guia de instalação física do Interposer DatZero (retrabalho de hardware, não é sobre o programa). `docs/assets/` tem as imagens usadas nele (ferramentas, interposer, localização do chip na placa).
 

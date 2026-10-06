@@ -47,6 +47,13 @@ Download `PS5_HDMI_Tool_Setup.exe` from the releases page above and run it
 for administrator permission to do so). No need to install Python or
 anything else.
 
+Once installed, the program itself checks on its own (a few seconds after
+opening) whether a newer version has been published on GitHub — if so, it
+shows a prompt asking whether to download and install it now; if you
+accept, it downloads the new installer, opens it, and closes itself, with
+nothing to manually download again. A network failure during this check
+is silently ignored (it doesn't affect normal use of the program).
+
 A tool to read/write the NOR flash of PS5 Slim boards via a CH341A reader,
 verify the read, save automatic backups, show board information (installed
 HDMI chip, MAC, identification data) and apply the HDMI chip conversion
@@ -172,7 +179,10 @@ single file you send to the user. When run, it:
 5. Offers to open the program at the end.
 
 **No need to install Python on the user's machine** — the `.exe` already
-carries Python embedded (built with PyInstaller `--onefile`).
+carries Python embedded (built with PyInstaller, "onedir" mode — a folder
+with the `.exe` and its supporting files, not a single `.exe`; onedir
+opens much faster than onefile, which has to unpack itself to a temp
+folder every single time it runs).
 
 **DualSense controller (the "Controller Test" tab):** no separate driver
 needed — it's a standard USB HID device, and Windows has always had native
@@ -195,16 +205,18 @@ py -3.11-32 -m PyInstaller PS5_HDMI_Tool.spec
 ```
 
 (first time, if the `.spec` doesn't exist yet, use the full command:
-`py -3.11-32 -m PyInstaller main.py --name "PS5_HDMI_Tool" --onefile --icon images/icon.ico --add-data "images;images" --add-data "drives;drives"`)
+`py -3.11-32 -m PyInstaller main.py --name "PS5_HDMI_Tool" --onedir --icon images/icon.ico --add-data "images;images" --add-data "drives;drives"`
+— do **not** use `--onefile`: it makes the program much slower to open,
+since it has to unpack itself to a temp folder every single time)
 
-The final `.exe` lands in `dist/PS5_HDMI_Tool.exe` — a single, portable
-file, nothing to install (just run it). To run it this way directly
-(without the installer), also copy the `drives/` folder next to the `.exe`
-— if Windows doesn't auto-detect the CH341A reader, point Device Manager
-manually to that folder (inside the `.exe` it only exists in a temporary
-folder while the program is open, which is why you need the outside copy).
-**To deliver to an end user, always prefer the installer** (section above)
-— it already takes care of the driver on its own.
+The final `.exe` lands in `dist/PS5_HDMI_Tool/PS5_HDMI_Tool.exe`, inside a
+folder with its supporting files (`_internal/` etc.) — it's that whole
+folder that needs to be copied/distributed together, not just the `.exe`
+alone. To run it this way directly (without the installer), also copy the
+`drives/` folder into `dist/PS5_HDMI_Tool/` — if Windows doesn't
+auto-detect the CH341A reader, point Device Manager manually to that
+folder. **To deliver to an end user, always prefer the installer** (section
+above) — it already takes care of the driver on its own.
 
 The `.exe` runs with just the program's window (`console=False` in the
 `.spec`) — no console/black window alongside it. Since there's no console
@@ -216,14 +228,22 @@ issues even without the visible console.
 ## Usage flow
 
 1. Connect the CH341A reader with the NOR in the socket/clip.
-2. Click **"1. Detect CH341A reader"**. Check that the JEDEC ID shown
-   matches what's expected for the board's chip (e.g., `EF 40 15` for the
-   W25Q16JV).
+2. Click **"1. Detect CH341A reader"**. The program reads the flash chip's
+   JEDEC ID and identifies whether it's the Winbond W25Q16JV (2 MB)
+   expected on PS5 boards — if it's a different Winbond model or a
+   different manufacturer, it warns in the log so you can check it's the
+   right chip before proceeding.
 3. Click **"2. Read NOR"**. The program:
    - Reads the whole NOR twice and compares byte by byte.
    - If the two reads don't match, it warns and **doesn't** save anything —
      redo the reader's contact and try again.
-   - If they match, it saves both reads to
+   - If they match, it checks whether the content is actually a PS5 NOR: if
+     it comes back 100% blank (0xFF), it warns that there's probably no NOR
+     in the socket/clip (bad contact); if it has data but doesn't have a
+     PS5 NOR signature, it warns that it's corrupted or a different kind of
+     chip. In both cases, it **doesn't** save anything and doesn't treat it
+     as a valid read.
+   - If they match and it's a valid PS5 NOR, it saves both reads to
      `database/backups/<console_identifier>/DUMP1.bin` and `DUMP2.bin` and
      shows the board's information. Each console has its own subfolder (a
      new read of the same console overwrites the previous
@@ -240,10 +260,24 @@ issues even without the visible console.
    of it as-is. It shows the detected chip/family from the donor file and
    asks for confirmation before proceeding — check that they match what you
    intend to install. Then just click "Write to NOR" as usual.
-5. To restore a previously saved backup (or any valid 2 MB `.bin`) back to
-   the connected NOR, use the **"Restore backup from file..."** button — it
-   asks for the file, confirms twice and writes it with the same 4-step
-   progress bar (verify, erase, write, verify).
+5. To write any valid 2 MB `.bin` to the connected NOR — a previously saved
+   backup, or a file converted in the "Analyze file (.bin)" tab (chip patch,
+   donor file, console type) — use the **"Load .bin file to write..."**
+   button. It's available as soon as the reader is detected (no need to
+   read the board first). It only checks the size (2 MB) and the PS5 NOR
+   signature there; the program then loads the file and shows all its
+   information, just like it already does after reading the real board — it
+   does **not** write anything yet. The write only happens when you click
+   **"4. WRITE TO NOR"**, same as the normal read+preview flow.
+6. When you click **"4. WRITE TO NOR"**, if you haven't made any backup in
+   this session yet (neither via step 2, nor by loading a file without
+   reading the board first), the program warns that, without a backup, the
+   write will be irreversible, and offers to make an automatic backup now
+   (two reads of the current NOR) before continuing.
+7. **"Restore NOR from Backup"**: writes back, with the same double
+   confirmation, the last backup made in this session (from step 2, or the
+   automatic one offered in step 6). If no backup has been made yet, it
+   warns instead of trying to write.
 
 ## "Analyze file (.bin)" tab
 
@@ -260,6 +294,25 @@ for that family, reuses the serial number and MAC addresses from the opened
 file, and writes them on top of the donor file automatically (same logic as
 the "Use donor file..." button in the hardware tab, except it picks the
 right donor file on its own instead of asking you to select one).
+
+If the file is corrupted or completely blank (a read that captured no data
+at all — the program clearly flags this in the log) and the board family
+can't be auto-detected because of that, use the **"Regenerate with donor
+file..."** button instead: you pick the right donor file manually (by the
+model printed on the board itself), and the program writes only the fields
+it can actually reuse from the original file on top of it — fields with no
+valid data are left exactly as they were in the donor file instead of being
+wiped out.
+
+**Convert console type (Disk / Digital / Slim Edition)**: a field the
+system uses to decide whether it requires the physical disc drive.
+Mainly useful for "Fat" PS5 units (EDM-01X to EDM-03X) with a broken disc
+drive — since it's paired with the APU and can't be swapped for another
+one, converting the console to "Digital" makes the system stop requiring
+it so updates work again. Pick the target type from the dropdown and
+click "Convert"; the result needs to be saved ("Save NOR with patch..."
+button) and written to a bench/test board before trusting it with a
+customer.
 
 ## "UART Reader" tab
 
@@ -326,13 +379,15 @@ Program code (at the root):
 - `ch341_spi.py` — communication with the CH341A reader (**tested and confirmed with real hardware** — NOR read and write working).
 - `uart_reader.py` — serial/UART port capture ("UART Reader" tab). **Not yet tested with a real adapter.**
 - `dualsense.py` — raw-HID DualSense controller read/test ("Controller Test" tab). **Not yet tested with a real controller.**
-- `gif_anim.py` — GIF animation player used in the interface.
+- `gif_anim.py` — GIF animation player used in the interface (lazy loading — only decodes a stage's frames the first time it's actually shown).
 - `i18n.py` — interface translations (Portuguese/English/Spanish) and the active-language switcher.
+- `version.py` — current version number (single source of truth, used by the update check).
+- `updater.py` — checks for and downloads updates via GitHub Releases.
 - `gui.py` — graphical interface (Tkinter).
 - `main.py` — entry point (`python main.py`).
 - `requirements.txt` — Python dependencies (Pillow, pyserial, hidapi).
 - `NOTES.md` — map of confirmed offsets and open items.
-- `PS5_HDMI_Tool.spec` — PyInstaller recipe to generate `dist/PS5_HDMI_Tool.exe`.
+- `PS5_HDMI_Tool.spec` — PyInstaller recipe to generate `dist/PS5_HDMI_Tool/` (onedir).
 - `installer.iss` — Inno Setup recipe to generate the final installer (`installer_output/PS5_HDMI_Tool_Setup.exe`), from the already-built `.exe`.
 - `docs/GUIA_INSTALACAO_INTERPOSER.md` — DatZero Interposer physical installation guide (hardware rework, not about the program; Portuguese only for now). `docs/assets/` has the images used in it (tools, interposer, chip location on the board).
 
