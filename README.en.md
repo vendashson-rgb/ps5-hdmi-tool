@@ -253,7 +253,19 @@ debug pins, to help pull up error codes on consoles that won't power on.
 text (automatically coloring lines that look like errors/warnings/success,
 by keyword) and lets you save the captured log to `.txt`. Default baud:
 115200 (the most common for UART debug) — if nothing readable comes
-through, try other values in the baud menu. Check the adapter's voltage
+through, try other values in the baud menu.
+
+**"Read error codes"**: once connected, actively sends the `errlog N`
+command (N from 0 to 10) to the console, to query the error codes already
+stored without needing to power-cycle and capture the whole boot. **"Clear
+error codes on console"** sends `errlog clear` (asks for confirmation —
+erases the console's stored history, cannot be undone). Protocol verified
+against the source code of [PS5 NOR Modifier](https://github.com/TheCod3rYouTube/PS5NorModifier)
+(TheCod3r) — **not yet tested with real hardware in this project**. If
+there's no response at all, check the baud rate and pinout before
+suspecting the command itself.
+
+Check the adapter's voltage
 before connecting (many embedded boards use 3.3V TTL).
 
 ## "Controller Test" tab

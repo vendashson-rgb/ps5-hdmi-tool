@@ -246,6 +246,16 @@ debug UART) — se não vier nada legível, teste outros valores no menu de baud
 Confira a tensão do adaptador antes de ligar (muita placa embarcada usa
 3.3V TTL).
 
+**"Ler códigos de erro"**: depois de conectar, envia o comando ativo
+`errlog N` (N de 0 a 10) pro console, pra consultar os códigos de erro já
+gravados sem precisar religar e capturar o boot inteiro. **"Limpar códigos
+de erro no console"** envia `errlog clear` (pede confirmação — apaga o
+histórico gravado no console, não pode ser desfeito). Protocolo conferido
+contra o código-fonte do [PS5 NOR Modifier](https://github.com/TheCod3rYouTube/PS5NorModifier)
+(TheCod3r) — **ainda não testado com hardware real neste projeto**. Se não
+vier resposta nenhuma, confira o baud e a pinagem antes de desconfiar do
+comando em si.
+
 ## Aba "Teste de Controle"
 
 Teste de controle DualSense/DualSense Edge **nativo** (sem internet, sem

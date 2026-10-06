@@ -89,16 +89,30 @@ já conhecido código `CFI-XXXX`, sem nenhum sufixo de região de 3 caracteres
 antes. Ou o layout diverge um pouco aqui entre PS5 e PS5 Slim, ou o campo de
 região fica em outro offset no Slim — não implementado, não confirmado.
 
-Achado que vale testar depois (não implementado ainda): o programa deles
-consulta códigos de erro **ativamente** via UART, enviando comandos de texto
-tipo `errlog 0`, `errlog 1` ... `errlog 10` e `errlog clear` (com um checksum
-simples — soma dos valores ASCII do comando & 0xFF, formato `comando:XX`),
-em vez de só escutar o log cru como a nossa aba "Leitor UART" faz hoje. Se o
-firmware de debug do PS5 Slim aceitar os mesmos comandos (provável, mesma
-família de SoC), dava pra adicionar um botão "Consultar códigos de erro" que
-manda esses comandos e já devolve a lista de erros gravados, sem precisar
-esperar o usuário religar o console e capturar o boot inteiro. Fica registrado
-aqui como ideia de melhoria futura, não testado ainda.
+**Implementado em 2026-10-05 (v1.0.2+)**: o programa deles consulta códigos
+de erro **ativamente** via UART, enviando comandos de texto tipo `errlog 0`,
+`errlog 1` ... `errlog 10` e `errlog clear` (com um checksum simples — soma
+dos valores ASCII do comando & 0xFF, formato `comando:XX`). Implementamos
+isso na aba "Leitor UART": botão "Ler códigos de erro" (manda `errlog 0`
+até `errlog 10` com um intervalo de 0.3s entre cada) e "Limpar códigos de
+erro no console" (`errlog clear`, com confirmação — irreversível). Função
+`checksum_command()` em `uart_reader.py`, conferida manualmente (`errlog 0`
+→ `errlog 0:DB`). **Ainda não testado com hardware real neste projeto** —
+não sabemos se o firmware de debug do PS5 Slim aceita exatamente os mesmos
+comandos do PS5 original (mesma família de SoC, mas não confirmado). Ao
+testar pela primeira vez: se não vier resposta nenhuma, confira baud/pinagem
+antes de desconfiar do comando.
+
+**Decisão consciente de escopo**: o usuário trouxe um print de uma ferramenta
+de terceiros (não identificada, sem link) mostrando uma tabela muito mais
+rica — com Slot/Data/Hora, Prioridade (Low/Medium/High/Severe) e descrição
+completa do erro por linha. Não implementamos esse nível de interpretação
+porque não temos o código-fonte dessa ferramenta pra confirmar o formato
+exato da resposta nem a classificação de prioridade — inventar isso seria
+arriscado (pode levar alguém a ignorar um erro sério achando que é "Low").
+Por enquanto mostramos a resposta crua (igual ao resto da aba UART, com a
+mesma coloração por palavra-chave) e deixamos a interpretação pro catálogo
+externo (psdevwiki/uartcodes.com, já linkados na aba).
 
 ## Estudo 2026-10-04: PS5 Wee Tools (andy-man/ps5-wee-tools)
 

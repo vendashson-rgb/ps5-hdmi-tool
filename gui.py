@@ -41,7 +41,15 @@ from gif_anim import GifAnimation
 from i18n import LANGUAGES, get_language, set_language, t
 from nor_parser import CHIP_SLUG, EXPECTED_SIZE, NorInfo, compare_dumps, parse_nor
 from nor_patcher import PatchResult, TARGET_BYTE, TARGET_LABEL, TARGET_NUVOTON, TARGET_REALTEK, apply_patch
-from uart_reader import COMMON_BAUDRATES, DEFAULT_BAUDRATE, UartError, UartReader, list_ports
+from uart_reader import (
+    COMMON_BAUDRATES,
+    DEFAULT_BAUDRATE,
+    ERRLOG_SLOT_COUNT,
+    UartError,
+    UartReader,
+    checksum_command,
+    list_ports,
+)
 import dualsense
 from dualsense import DualSenseController, DualSenseError
 
@@ -806,6 +814,22 @@ class App(tk.Tk):
         for label, url in UART_REFERENCE_LINKS:
             ttk.Button(ref_row, text=label, command=lambda u=url: webbrowser.open(u)).pack(side="left", padx=4)
 
+        errlog_row = ttk.Frame(parent, padding=(10, 0, 10, 5))
+        errlog_row.pack(fill="x")
+        self.btn_uart_read_errors = ttk.Button(
+            errlog_row, text=t("uart.btn_read_errors"), command=self.on_uart_read_errors
+        )
+        self.btn_uart_read_errors.pack(side="left")
+        self.btn_uart_clear_errors = ttk.Button(
+            errlog_row, text=t("uart.btn_clear_errors"), command=self.on_uart_clear_errors
+        )
+        self.btn_uart_clear_errors.pack(side="left", padx=8)
+        self.lbl_uart_errlog_warning = ttk.Label(
+            errlog_row, text=t("uart.errlog_warning"),
+            font=("Segoe UI", 8), foreground=FG_MUTED, wraplength=960, justify="left",
+        )
+        self.lbl_uart_errlog_warning.pack(side="left", padx=(8, 0))
+
         actions_row = ttk.Frame(parent, padding=(10, 0, 10, 5))
         actions_row.pack(fill="x")
         self.btn_uart_clear = ttk.Button(actions_row, text=t("uart.btn_clear"), command=self.on_uart_clear)
@@ -857,6 +881,9 @@ class App(tk.Tk):
         )
         self.lbl_uart_warning.configure(text=t("uart.warning"))
         self.lbl_uart_catalog.configure(text=t("uart.catalog_label"))
+        self.btn_uart_read_errors.configure(text=t("uart.btn_read_errors"))
+        self.btn_uart_clear_errors.configure(text=t("uart.btn_clear_errors"))
+        self.lbl_uart_errlog_warning.configure(text=t("uart.errlog_warning"))
         self.btn_uart_clear.configure(text=t("uart.btn_clear"))
         self.btn_uart_save.configure(text=t("uart.btn_save_log"))
         self.lbl_uart_send.configure(text=t("uart.send_label"))
@@ -969,6 +996,42 @@ class App(tk.Tk):
         self.uart.write((text + "\n").encode("utf-8", errors="replace"))
         self.uart_log(f">> {text}", "patch")
         self.uart_send_var.set("")
+
+    def _uart_send_checksum_command(self, raw_cmd: str):
+        cmd = checksum_command(raw_cmd)
+        self.uart.write((cmd + "\n").encode("ascii", errors="replace"))
+        self.after(0, lambda: self.uart_log(f">> {cmd}", "patch"))
+
+    def on_uart_read_errors(self):
+        if not self.uart_connected or self.uart is None:
+            messagebox.showinfo(t("uart.not_connected_title"), t("uart.not_connected_body"))
+            return
+        self.uart_log("=" * 60, "muted")
+        self.uart_log(
+            t("uart.log.read_errors_start", n=ERRLOG_SLOT_COUNT, max=ERRLOG_SLOT_COUNT - 1), "info"
+        )
+        threading.Thread(target=self._uart_read_errors_worker, daemon=True).start()
+
+    def _uart_read_errors_worker(self):
+        for slot in range(ERRLOG_SLOT_COUNT):
+            if not self.uart_connected or self.uart is None:
+                return
+            self._uart_send_checksum_command(f"errlog {slot}")
+            time.sleep(0.3)
+        self.after(0, lambda: self.uart_log(t("uart.log.read_errors_done"), "info"))
+
+    def on_uart_clear_errors(self):
+        if not self.uart_connected or self.uart is None:
+            messagebox.showinfo(t("uart.not_connected_title"), t("uart.not_connected_body"))
+            return
+        proceed = messagebox.askyesno(
+            t("uart.clear_errors_confirm_title"), t("uart.clear_errors_confirm_body")
+        )
+        if not proceed:
+            return
+        self.uart_log("=" * 60, "muted")
+        self._uart_send_checksum_command("errlog clear")
+        self.uart_log(t("uart.log.clear_errors_sent"), "info")
 
     # -- Aba "Teste de Controle" (DualSense) ---------------------------------
     def _build_controller_tab(self, parent):

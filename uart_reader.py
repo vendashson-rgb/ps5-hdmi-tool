@@ -32,6 +32,23 @@ from i18n import t
 DEFAULT_BAUDRATE = 115200
 COMMON_BAUDRATES = [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600]
 
+# Quantidade de slots de log de erro consultados por "errlog N" (0 a 10,
+# igual ao PS5 NOR Modifier do TheCod3r -- unica fonte aberta que achamos
+# com esse protocolo implementado e funcionando de verdade).
+ERRLOG_SLOT_COUNT = 11
+
+
+def checksum_command(cmd: str) -> str:
+    """Formata um comando UART com o checksum que o firmware de debug espera:
+    soma dos codigos ASCII do comando & 0xFF, em hex maiusculo, no formato
+    "comando:XX". Protocolo conferido contra o codigo-fonte do PS5 NOR
+    Modifier (TheCod3r/PS5NorModifier) -- usado por "errlog N" (consulta o
+    slot N do log de erros) e "errlog clear" (apaga o log). Ver NOTES.md:
+    ainda nao testado com hardware real neste projeto.
+    """
+    total = sum(ord(c) for c in cmd) & 0xFF
+    return f"{cmd}:{total:02X}"
+
 
 class UartError(Exception):
     pass
