@@ -471,3 +471,53 @@ Pasta `NOR's/`:
 - EDM-O33 PANASONIC HDMI E J20H100 REV 1.3.bin (original)
 - EDM-041 NUVOTON HDMI E J20H104 REV 1.1 .BIN (original)
 - EDM-030 CFI-1214A 01X .bin (original, Panasonic/Nuvoton — confirmado pelo programa, mesmo grupo chip/REV Wi-Fi do EDM-O33)
+
+## Diagnosticado e corrigido 2026-10-06: dumps "não identificados" eram leituras em branco, não gap de detecção
+
+Usuário adicionou mais amostras na pasta `NOR's/` e reportou que, ao ler
+essas placas, o programa mostrava como "não identificado". Três arquivos
+novos (`EDM-010 OANASONIC HDMI J20H100 REV 1.0 DISCO.bin`, `EDM-020
+PANASONIC HDMI J20H100 REV 1.2 DISCO.bin`, `EDM-050 REALTECK HDMI J20H104
+REV 1.5.bin` — note a falta do "E" no nome, diferente do `EDM-050 REALTK
+HDMI E J20H104 REV. 1.5.bin` que já funcionava).
+
+**Diagnóstico** (`data.count(0xFF) == len(data)`): os 3 arquivos têm **os
+2.097.152 bytes inteiros em `0xFF`** — não é um offset diferente pra essa
+geração de placa, é um dump **100% vazio**, literalmente sem nenhum byte
+de dado em lugar nenhum do arquivo (bloco de identidade, MAC, firmware,
+tudo). Isso não é "família de placa ainda não mapeada" — é a **ausência
+total** de dados.
+
+Isso quase certamente **não é uma NOR realmente apagada**: um PS5 real
+não liga com a NOR inteiramente vazia (o firmware de boot, dados do EMC
+etc. também ficam lá). O padrão clássico de "tudo 0xFF" é o que aparece
+quando a leitura falha por mau contato do clipe/leitor (barramento
+flutuando em nível alto) ou o chip não foi detectado corretamente — ou
+seja, é um **problema de leitura de hardware**, não algo que o parser
+consiga "identificar melhor". Recomendado ao usuário: reler essas 3 placas
+físicas com mais cuidado na conexão do CH341A antes de confiar nesses
+arquivos.
+
+**Dois bugs de software reais encontrados nesse processo, corrigidos**:
+1. `extract_board_family()` montava a string da família direto com
+   `f"EDM-0{chunk[2]}X"`, sem checar se `chunk[2]` é um dígito decimal
+   plausível (0-9). Com o bloco em branco, `chunk[2] == 0xFF` (255 em
+   decimal) virava a família sem sentido `"EDM-0255X"` em vez de "não
+   identificado". Corrigido: só monta a string se `chunk[2] <= 9`, senão
+   devolve `None` (mesmo tratamento que o flag de leitor de disco já tinha
+   pra valor desconhecido).
+2. Antes não existia nenhuma forma de distinguir "chip Nuvoton confirmado"
+   de "bloco em branco" — os dois batem com o mesmo byte `0xFF` no seletor
+   de chip (offset 0x1C4062), então um dump vazio aparecia como "Nuvoton
+   detectado", o que é enganoso. Adicionada `nor_parser.is_blank()`
+   (`True` se o arquivo inteiro é `0xFF`) — quando `True`, `parse_nor()`
+   reporta o chip como "Não detectado (arquivo em branco)" em vez de
+   "Nuvoton", e insere um aviso bem explícito no topo da lista de warnings
+   explicando o diagnóstico acima (provável falha de leitura, não NOR
+   vazia de verdade).
+
+Testado contra todas as amostras da pasta `NOR's/` (via `parse_nor()`
+direto e também pela aba "Analisar arquivo .bin" da interface): os 8
+arquivos com dado real continuam identificando exatamente igual a antes
+(nenhuma regressão); os 3 arquivos em branco agora mostram o aviso claro
+em vez da família quebrada `"EDM-0255X"` com chip "Nuvoton" enganoso.

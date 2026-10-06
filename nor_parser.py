@@ -156,6 +156,14 @@ def detect_chip(data: bytes) -> tuple[int, str]:
     return raw, t("backend.parser.chip_unknown", raw=f"{raw:02X}")
 
 
+def is_blank(data: bytes) -> bool:
+    """True se o dump inteiro e 0xFF (chip apagado/nao programado OU leitura
+    falhou -- um PS5 de verdade nao liga com a NOR totalmente vazia, entao
+    isto quase sempre indica mau contato do leitor, nao uma NOR vazia de
+    verdade)."""
+    return len(data) > 0 and data.count(0xFF) == len(data)
+
+
 def format_mac(data: bytes) -> str:
     mac_bytes = data[OFFSET_MAC:OFFSET_MAC + MAC_LEN]
     return ":".join(f"{b:02X}" for b in mac_bytes)
@@ -229,11 +237,16 @@ def extract_board_family(data: bytes) -> tuple[str | None, str | None]:
     byte[2] = numero da familia EDM (ex.: 0x04 -> "EDM-04X"). byte[5] = flag
     de leitor de disco (0x01 = tem, 0x03 = nao tem). Confirmado 7/7 nas
     nossas amostras reais (ver NOTES.md).
+
+    byte[2] so faz sentido como digito decimal unico (0-9); fora dessa faixa
+    (ex.: 0xFF quando o bloco esta em branco/nao programado) nao da pra
+    montar um nome de familia valido -- devolve None em vez de uma string
+    sem sentido tipo "EDM-0255X".
     """
     chunk = data[OFFSET_BOARD_ID:OFFSET_BOARD_ID + BOARD_ID_LEN]
     if len(chunk) < 6:
         return None, None
-    family = f"EDM-0{chunk[2]}X"
+    family = f"EDM-0{chunk[2]}X" if chunk[2] <= 9 else None
     disc = {0x01: t("backend.parser.disc_yes"), 0x03: t("backend.parser.disc_no")}.get(chunk[5])
     return family, disc
 
@@ -312,11 +325,18 @@ def parse_nor(data: bytes) -> NorInfo:
 
     sha256 = hashlib.sha256(data).hexdigest()
 
-    chip_raw, chip_name = detect_chip(data) if size >= OFFSET_CHIP_SELECT + 1 else (
-        -1, t("backend.parser.truncated")
-    )
-    if chip_raw not in (CHIP_REALTEK, CHIP_NUVOTON_PANASONIC):
-        warnings.append(t("backend.parser.chip_byte_warning"))
+    blank = is_blank(data)
+    if blank:
+        warnings.insert(0, t("backend.parser.blank_warning"))
+
+    if blank:
+        chip_raw, chip_name = -1, t("backend.parser.blank_chip")
+    else:
+        chip_raw, chip_name = detect_chip(data) if size >= OFFSET_CHIP_SELECT + 1 else (
+            -1, t("backend.parser.truncated")
+        )
+        if chip_raw not in (CHIP_REALTEK, CHIP_NUVOTON_PANASONIC):
+            warnings.append(t("backend.parser.chip_byte_warning"))
 
     mac = format_mac(data) if size >= OFFSET_MAC + MAC_LEN else None
     raw_id = extract_id_block(data) if size >= OFFSET_ID_BLOCK + ID_BLOCK_MAX_LEN else None
